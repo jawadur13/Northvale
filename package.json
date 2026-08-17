@@ -1,0 +1,31 @@
+{
+  "name": "northvale",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Northvale — an enormous interactive 3D world atlas.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx scripts/smoke.ts",
+    "visual": "npm run build && tsx scripts/visual.ts",
+    "verify": "npm run typecheck && npm run smoke && npm run visual"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/three": "^0.169.0",
+    "puppeteer-core": "^25.8.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.21.5": true
+  }
+}
