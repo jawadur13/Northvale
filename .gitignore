@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# Inspection images and screenshots produced by the test harnesses.
+out/
+*.local
+.DS_Store
