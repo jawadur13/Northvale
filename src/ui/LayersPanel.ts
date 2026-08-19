@@ -137,7 +137,7 @@ export class LayersPanel {
     page.append(section('Physical', [physical]));
 
     const human = el('div', { class: 'ui-group' });
-    this.addCheck(human, 'settlements', 'Settlements', 'Buildings, walls and harbours');
+    this.addCheck(human, 'settlements', 'Towns and cities', 'Streets, plots and buildings');
     this.addCheck(human, 'roads', 'Roads', 'Pathfound between every settlement');
     const roadDetail = segmented(
       [

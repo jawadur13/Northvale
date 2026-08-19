@@ -89,7 +89,14 @@ export interface QualitySettings {
   maxQuadtreeDepth: number;
   shadowSteps: number;
   vegetationBudget: number;
-  cityBudget: number;
+  /**
+   * Vertices of built geometry the city layer may hold at once.
+   *
+   * Detail is chosen per block from its distance to the camera, so this does not
+   * decide *what* is drawn so much as how far out the detailed tiers reach before
+   * blocks start stepping down. A capital at full detail is about 1.3 million.
+   */
+  cityVertexBudget: number;
   pixelRatioCap: number;
   waterDetail: number;
 }
@@ -100,7 +107,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     maxQuadtreeDepth: 5,
     shadowSteps: 0,
     vegetationBudget: 9000,
-    cityBudget: 6,
+    cityVertexBudget: 260_000,
     pixelRatioCap: 1,
     waterDetail: 0,
   },
@@ -109,7 +116,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     maxQuadtreeDepth: 6,
     shadowSteps: 12,
     vegetationBudget: 28000,
-    cityBudget: 12,
+    cityVertexBudget: 650_000,
     pixelRatioCap: 1.35,
     waterDetail: 1,
   },
@@ -118,7 +125,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     maxQuadtreeDepth: 7,
     shadowSteps: 20,
     vegetationBudget: 60000,
-    cityBudget: 20,
+    cityVertexBudget: 1_500_000,
     pixelRatioCap: 1.75,
     waterDetail: 2,
   },
@@ -127,7 +134,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     maxQuadtreeDepth: 8,
     shadowSteps: 28,
     vegetationBudget: 110000,
-    cityBudget: 28,
+    cityVertexBudget: 2_600_000,
     pixelRatioCap: 2,
     waterDetail: 2,
   },

@@ -266,6 +266,7 @@ export class Vegetation {
   private budget: number;
   private biomeIds: Uint8Array;
   private climate: Uint8Array;
+  private surface: Uint8Array;
   private heightAt: (x: number, z: number) => number;
   private exaggeration: () => number;
 
@@ -284,12 +285,14 @@ export class Vegetation {
     uniforms: WorldUniforms,
     biomeIds: Uint8Array,
     climate: Uint8Array,
+    surface: Uint8Array,
     heightAt: (x: number, z: number) => number,
     exaggeration: () => number,
     budget: number,
   ) {
     this.biomeIds = biomeIds;
     this.climate = climate;
+    this.surface = surface;
     this.heightAt = heightAt;
     this.exaggeration = exaggeration;
     this.budget = budget;
@@ -389,10 +392,11 @@ export class Vegetation {
     for (const kind of PLANT_KINDS) counts.set(kind, 0);
 
     const exag = this.exaggeration();
-    // Instance size follows spacing so canopy density reads consistently, but is
-    // capped: close in these are single trees at 25-40 m, further out they are
-    // small stands, and they never grow past about 130 m however sparse they get.
-    const baseScale = clamp(0.016 + spacing * 1.15, 0.02, 0.13);
+    // Instance size follows spacing so canopy density reads consistently, but the
+    // cap is now a real tree rather than a landmark. At 130 m an oak stood taller
+    // than the town beside it - invisible until buildings arrived at true scale,
+    // and unmissable afterwards.
+    const baseScale = clamp(0.008 + spacing * 0.72, 0.012, 0.042);
 
     const g0x = Math.floor((cx - radius) / spacing);
     const g1x = Math.ceil((cx + radius) / spacing);
@@ -425,8 +429,15 @@ export class Vegetation {
           continue;
         }
 
-        const cover = this.climate[mi * 4 + 2] / 255;
+        let cover = this.climate[mi * 4 + 2] / 255;
         if (cover < 0.03) continue;
+        // Built and cultivated ground is cleared ground. The falloff has to be
+        // steep rather than linear: at 0.985 linear suppression a town centre
+        // still keeps one tree in nine, which is enough to leave oaks standing in
+        // the middle of the market square. The square law leaves gardens in the
+        // suburbs and nothing at all downtown.
+        const developed = this.surface[mi * 4] / 255;
+        cover *= Math.pow(1 - developed, 2.2);
         // Accept in proportion to cover, using a third independent hash so the
         // acceptance pattern does not correlate with the jitter.
         if (hash2(gx, gz, 0x7a3d) > cover * 1.15) continue;

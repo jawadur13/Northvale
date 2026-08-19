@@ -102,6 +102,8 @@ export class App {
   private lastTier: ZoomTier = ZoomTier.World;
   private lastExclusionSync = -1;
   private autoQuality = true;
+  /** The last frame's wall-clock cost, in ms. Read by the city layer next frame. */
+  private lastFrameMs = 16;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -275,10 +277,62 @@ export class App {
         });
         return true;
       },
-      jumpToPort: () => {
-        const f = payload.features.find((x) => x.kind === 'port') ?? payload.features.find((x) => x.tags?.includes('coastal'));
+      jumpToPort: (distance = 14) => {
+        // The settlement actually *on* the water, not merely tagged coastal. Half
+        // the places tagged coastal are four kilometres inland and up a hill, and
+        // the point of this view is the quays.
+        const waterDistance = (x: number, z: number): number => {
+          for (let d = 0.1; d < 5; d *= 1.4) {
+            for (let i = 0; i < 12; i++) {
+              const a = (i / 12) * Math.PI * 2;
+              if (view.resources.heightAt(x + Math.cos(a) * d, z + Math.sin(a) * d) <= 0) return d;
+            }
+          }
+          return Infinity;
+        };
+        let best: Feature | null = null;
+        let bestD = Infinity;
+        for (const x of payload.features) {
+          if (x.kind !== 'capital' && x.kind !== 'city') continue;
+          if (!(x.tags?.includes('coastal') ?? false)) continue;
+          const d = waterDistance(x.x, x.z);
+          if (d < bestD) {
+            bestD = d;
+            best = x;
+          }
+        }
+        const f = best ?? payload.features.find((x) => x.tags?.includes('coastal'));
         if (!f) return false;
-        director.jumpTo({ x: f.x, z: f.z, distance: 14, polar: 1.05 });
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 1.05 });
+        return true;
+      },
+      /** Nearest settlement of a given culture, for comparing plan forms. */
+      jumpToCultureCity: (culture: number, distance = 6) => {
+        const f = payload.features
+          .filter(
+            (x) =>
+              (x.kind === 'capital' || x.kind === 'city') &&
+              x.region >= 0 &&
+              payload.regions[x.region]?.culture === culture,
+          )
+          .sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
+        if (!f) return false;
+        this.selected = f;
+        this.labels?.setSelected(f);
+        this.info?.show(f);
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.72 });
+        return true;
+      },
+      /** Largest settlement of a given tier. */
+      jumpToTier: (kind: string, distance = 3) => {
+        const f = payload.features
+          .filter((x) => x.kind === kind)
+          .sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
+        if (!f) return false;
+        this.selected = f;
+        this.labels?.setSelected(f);
+        this.info?.show(f);
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.7 });
         return true;
       },
       jumpToBiggestCity: (distance = 9) => {
@@ -289,7 +343,7 @@ export class App {
         this.selected = f;
         this.labels?.setSelected(f);
         this.info?.show(f);
-        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.95 });
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.78 });
         return true;
       },
       flyToNamed: (name: string) => {
@@ -721,7 +775,9 @@ export class App {
 
     const focus = controls.focus;
     const camDistance = controls.cameraDistance;
-    view.update(dt, this.elapsed, focus.x, focus.z, camDistance);
+    // The previous frame's cost, which is what the city layer sizes its
+    // generation slice against — see `GENERATION_FRACTION`.
+    view.update(dt, this.elapsed, focus.x, focus.z, camDistance, this.lastFrameMs);
 
     // Labels, filtered by the layers that are actually on, and kept clear of the
     // interface panels.
@@ -778,6 +834,7 @@ export class App {
     this.renderer.render(view.scene, view.camera);
 
     const frameMs = performance.now() - t0;
+    this.lastFrameMs = frameMs;
     this.governQuality(frameMs);
     if (this.readout.showingDiagnostics) {
       const s = view.frameStats;
@@ -785,6 +842,7 @@ export class App {
         `${(1000 / Math.max(0.1, frameMs)).toFixed(0)} fps (${frameMs.toFixed(1)} ms)`,
         `${s.chunks} chunks · depth ${s.maxDepth} · ${(s.triangles / 1000).toFixed(0)}k tris`,
         `${s.plants.toLocaleString('en-US')} plants · ${s.buildings.toLocaleString('en-US')} buildings`,
+        `${s.planCities} towns · ${s.planBlocks.toLocaleString('en-US')} blocks · ${s.planParcels.toLocaleString('en-US')} plots · rebuild ${s.rebuildMs} ms`,
         `quality ${view.getQuality()} · dpr ${this.renderer.getPixelRatio().toFixed(2)}`,
         `labels ${this.labels?.onScreen.length ?? 0}`,
       ]);
