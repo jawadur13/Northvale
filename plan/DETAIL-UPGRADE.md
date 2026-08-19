@@ -3,10 +3,10 @@
 **Goal:** far more detail — cities with real street plans and buildings, villages
 with houses and farmyards, working rural infrastructure.
 
-**Status:** **Phases A and B complete** — street plans, buildings, works, and
-vegetation at real density and real scale. Phase C (rural landscape) next. See §11
-and §12 for the progress logs, and **[RESUME.md](RESUME.md) to pick the work back
-up.**
+**Status:** **Complete.** Phases A, B and C — street plans, buildings, works,
+vegetation at real density and real scale, and the worked landscape between the
+last house and the wilderness. See §11–§13 for the progress logs, and
+**[RESUME.md](RESUME.md)** for what was deliberately left undone.
 **Written against:** the current build — 18,500 lines, 54 TS modules, ~11 s
 generation, 5,500 named features.
 
@@ -165,10 +165,9 @@ layouts today.
 
 ---
 
-## 5. Phase C — The rural landscape
+## 5. Phase C — The rural landscape ✅
 
-**1.5 sessions.** The layer that is completely absent today: everything between the
-town edge and the wilderness.
+**Shipped.** See §13 for what was built and what was not.
 
 - **Field systems.** Parcels around every settlement, shaped by slope and drainage,
   bounded by hedges, dry-stone walls or ditches depending on culture and biome.
@@ -703,3 +702,91 @@ Three terms, all multipliers on the cover the classifier already decided:
   because the scatter suppresses planting on developed ground and knows nothing
   about city blocks. Worth wiring up when Phase C gives the two a shared notion of
   cultivated land.
+
+---
+
+## 13. Phase C — the rural landscape ✅
+
+**Shipped.** Two new modules; the layer between the last house and the wilderness.
+
+| File | What it does |
+| --- | --- |
+| `world/gen/rural/fields.ts` | The field belt: parcels, boundaries, farmsteads |
+| `world/gen/rural/works.ts` | What a mine, quarry or mill did to the ground it stands on |
+| `world/gen/city/geometry3d.ts` | Gained `emitWorks` |
+| `render/features/CityMeshes.ts` | Draws the belt flat, the farmsteads and works solid |
+| `core/App.ts` | `__nv.jumpToKind`, which finds a landmark you can actually see |
+
+### Fields
+
+A ring of worked land around every settlement, built as an annulus of sectors and
+subdivided by the same recursive halving that cuts city blocks — not a shortcut
+but the right shape, since a field is a convex parcel bounded by its neighbours,
+cut off the long axis of whatever it came from, exactly like a burgage plot.
+
+What a boundary *is* comes from the ground: hedge where hedges grow, dry-stone
+wall where the fields are full of stone and nothing grows tall, bank and ditch in
+wet country. It is drawn as the parcel's own outline — the whole parcel in the
+boundary colour with the crop laid inside it — so a hedged field is two polygons
+rather than a polygon and a ribbon.
+
+Not every parcel in the ring is worked; the share falls with distance, so the belt
+does not read as a dartboard drawn round the town. Nothing is ploughed on ground
+steeper than about one in three, under water, or on infertile biome.
+
+**Measured on the default seed:** a city of 179,000 works 381 parcels over 7.7 km²
+at a mean of 2.0 ha, reaching 2.1 town radii; a village of 1,958 works 161 parcels
+over 1.8 km² at 1.1 ha. None in water, none on ground too steep to plough.
+
+### Works
+
+A mine was a label and a dot. What makes one legible from the air is never the
+shaft — that is a hole a few metres across — but everything the shaft produced:
+the spoil heap, which is bigger than the workings and a colour that grows nowhere;
+the benches a quarry was cut in; the pond that is the whole point of a watermill.
+So each is described as *the ground it disturbed*, with the building an
+afterthought sitting on it. 406 landmarks, 811 patches of disturbed ground.
+
+### Bugs found
+
+1. **A landscape of allotments.** Field parcels came out at 0.3 ha because the
+   target area was written as `0.00004` for what was meant to be four hectares —
+   a square kilometre is a hundred hectares, so that is forty square metres. The
+   subdivision then ran to its depth limit instead of to its target, which hid the
+   unit error behind a plausible-looking recursion cap.
+2. **A quarry hanging in the air above its own hillside.** The works sample the
+   terrain at a point; the terrain *mesh* interpolates between vertices two hundred
+   metres apart, and on a steep face it cuts the corner and sits well below the
+   sampled height — multiplied by the relief exaggeration, half a kilometre of
+   screen offset. Works now sink into the hill by their local gradient, up to a
+   dozen metres, which is a real cut rather than a correction. On ground steeper
+   than that nothing of this size can be represented at all, and the note in §5
+   about laying rather than cutting is where that limit lives.
+3. **Two landmark views that looked like rendering faults and were not.** The first
+   quarry in the list is perched over deep water with half the view below sea
+   level; the most inland one is on a 2,400 m cliff. `jumpToKind` now scores for
+   dry, gentle, inhabited ground, because a landmark view that shows no landmark
+   costs more to diagnose than it does to write.
+
+### Not built, and why
+
+- **Road embankments, cuttings, ditches, milestones, passing places.** At one to
+  five kilometres a road is already drawn at its minimum on-screen width, so an
+  embankment under it is a slightly wider road; milestones and passing places are
+  sub-pixel. The whole item is the lowest-value part of §5 and the only one whose
+  absence is invisible.
+- **Tramways from mines to roads, charcoal platforms, saltworks, lime kilns.** The
+  three works that were built cover the kinds that actually appear in quantity;
+  the rest are a handful of features each.
+
+### Carried forward
+
+- Orchard districts inside towns still grow nothing. The scatter suppresses
+  planting on developed ground and knows nothing about city blocks or field
+  parcels; the shared notion of cultivated land that would fix it now exists in
+  `rural/fields.ts` but is not wired to the vegetation layer.
+- The field belt feeds a village but not a city: a settlement of 179,000 works
+  7.7 km², which is a fraction of what it eats. That is correct — a city imports,
+  and the rest of its supply is other people's villages, which have their own
+  belts — but it means the belt scales with the town's *radius* rather than with
+  its appetite.

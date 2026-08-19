@@ -493,6 +493,31 @@ water, hardest where there is least of it — the line of green along a watercou
 through dry country is one of the most recognisable things in any aerial view of
 anywhere.
 
+### The worked landscape
+
+Every settlement carries a **field belt**: a ring of worked land from just outside
+the built edge out to two or three times the town's radius, built as an annulus of
+sectors and subdivided by the same recursive halving that cuts city blocks. That is
+not a shortcut — a field is a convex parcel bounded by its neighbours, cut off the
+long axis of whatever it came from, exactly like a burgage plot.
+
+What a boundary *is* comes from the ground: hedge where hedges grow, dry-stone wall
+where the fields are full of stone and nothing grows tall, bank and ditch in wet
+country. It is drawn as the parcel's own outline — the whole parcel in the boundary
+colour with the crop laid inside it — so a hedged field is two polygons rather than
+a polygon and a ribbon. Crops run a four-colour rotation, and the share of the ring
+actually worked falls with distance, so the belt does not read as a dartboard drawn
+round the town. Nothing is ploughed on ground steeper than about one in three.
+Farmsteads stand out among the fields, house and barn set at right angles about a
+yard.
+
+A mine was a label and a dot. What makes one legible from the air is never the
+shaft — that is a hole a few metres across — but everything the shaft produced: the
+**spoil heap**, which is bigger than the workings and a colour that grows nowhere;
+the **benches** a quarry was cut in; the **pond** that is the whole point of a
+watermill. Each is described as the ground it disturbed, with the building an
+afterthought sitting on it.
+
 ### Camera
 
 The camera orbits a focus point that slides across the terrain, and every input feeds
@@ -700,6 +725,8 @@ scripts/
 | What grows in a biome, and how tall | `gen/biomes.ts` — the `mix` on each entry |
 | Plant silhouettes | `render/features/PlantLibrary.ts` |
 | Canopy spacing, clearings, forest edges | `render/features/Vegetation.ts` |
+| Field size, crops and boundaries | `gen/rural/fields.ts` |
+| What a mine or quarry did to the ground | `gen/rural/works.ts` |
 | Wall and tower proportions | `gen/city/walls.ts` |
 | Harbour layout | `gen/city/harbour.ts` |
 
