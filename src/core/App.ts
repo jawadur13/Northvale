@@ -31,6 +31,7 @@ import { MapControls } from '../camera/MapControls';
 import { Picker } from '../interaction/Picker';
 import { DEFAULT_LAYERS, WorldView, type LayerState } from '../render/WorldView';
 import { MACRO } from './config';
+import { Biome, BIOMES } from '../world/gen/biomes';
 import type { Feature, GenMessage, WorldPayload } from '../world/types';
 import { Bookmarks, Compass, Minimap, Readout, ScaleBar, ZoomControls } from '../ui/Chrome';
 import { HoverTip, InfoPanel } from '../ui/InfoPanel';
@@ -102,6 +103,8 @@ export class App {
   private lastTier: ZoomTier = ZoomTier.World;
   private lastExclusionSync = -1;
   private autoQuality = true;
+  /** The last frame's wall-clock cost, in ms. Read by the city layer next frame. */
+  private lastFrameMs = 16;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -275,10 +278,135 @@ export class App {
         });
         return true;
       },
-      jumpToPort: () => {
-        const f = payload.features.find((x) => x.kind === 'port') ?? payload.features.find((x) => x.tags?.includes('coastal'));
+      jumpToPort: (distance = 14) => {
+        // The settlement actually *on* the water, not merely tagged coastal. Half
+        // the places tagged coastal are four kilometres inland and up a hill, and
+        // the point of this view is the quays.
+        const waterDistance = (x: number, z: number): number => {
+          for (let d = 0.1; d < 5; d *= 1.4) {
+            for (let i = 0; i < 12; i++) {
+              const a = (i / 12) * Math.PI * 2;
+              if (view.resources.heightAt(x + Math.cos(a) * d, z + Math.sin(a) * d) <= 0) return d;
+            }
+          }
+          return Infinity;
+        };
+        let best: Feature | null = null;
+        let bestD = Infinity;
+        for (const x of payload.features) {
+          if (x.kind !== 'capital' && x.kind !== 'city') continue;
+          if (!(x.tags?.includes('coastal') ?? false)) continue;
+          const d = waterDistance(x.x, x.z);
+          if (d < bestD) {
+            bestD = d;
+            best = x;
+          }
+        }
+        const f = best ?? payload.features.find((x) => x.tags?.includes('coastal'));
         if (!f) return false;
-        director.jumpTo({ x: f.x, z: f.z, distance: 14, polar: 1.05 });
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 1.05 });
+        return true;
+      },
+      /** Nearest settlement of a given culture, for comparing plan forms. */
+      jumpToCultureCity: (culture: number, distance = 6) => {
+        const f = payload.features
+          .filter(
+            (x) =>
+              (x.kind === 'capital' || x.kind === 'city') &&
+              x.region >= 0 &&
+              payload.regions[x.region]?.culture === culture,
+          )
+          .sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
+        if (!f) return false;
+        this.selected = f;
+        this.labels?.setSelected(f);
+        this.info?.show(f);
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.72 });
+        return true;
+      },
+      /** Largest settlement of a given tier. */
+      jumpToTier: (kind: string, distance = 3) => {
+        const f = payload.features
+          .filter((x) => x.kind === kind)
+          .sort((a, b) => (b.population ?? 0) - (a.population ?? 0))[0];
+        if (!f) return false;
+        this.selected = f;
+        this.labels?.setSelected(f);
+        this.info?.show(f);
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.7 });
+        return true;
+      },
+      /**
+       * A landmark of one kind, standing on open land rather than on a cliff.
+       *
+       * Picking the first of a kind found one quarry perched over deep water with
+       * half the view below sea level, and the next on a 2,400 m cliff where the
+       * terrain mesh has vertices two hundred metres apart and nothing the size of
+       * a quarry can sit on it convincingly. Scoring for dry, *gentle* ground costs
+       * a few dozen samples and makes a landmark view mean something.
+       */
+      jumpToKind: (kind: string, distance = 3) => {
+        let best: Feature | null = null;
+        let bestScore = -1;
+        for (const f of payload.features) {
+          if (f.kind !== kind) continue;
+          let score = 0;
+          for (let dz = -2; dz <= 2; dz++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (view.resources.heightAt(f.x + dx * 1.2, f.z + dz * 1.2) > 0.02) score++;
+            }
+          }
+          const d = 0.4;
+          const gx = view.resources.heightAt(f.x + d, f.z) - view.resources.heightAt(f.x - d, f.z);
+          const gz = view.resources.heightAt(f.x, f.z + d) - view.resources.heightAt(f.x, f.z - d);
+          score -= Math.hypot(gx, gz) * 40;
+          // And prefer somewhere people live. Scoring for flat dry ground alone
+          // found a quarry on an ice sheet, which proves the geometry and shows
+          // nothing else.
+          score -= Math.max(0, (f.elevation ?? 0) - 900) * 0.004;
+          if (score > bestScore) {
+            bestScore = score;
+            best = f;
+          }
+        }
+        if (!best) return false;
+        this.selected = best;
+        this.labels?.setSelected(best);
+        this.info?.show(best);
+        director.jumpTo({ x: best.x, z: best.z, distance, polar: 0.68 });
+        return true;
+      },
+      /**
+       * The largest continuous stretch of one biome, for looking at vegetation.
+       *
+       * Sampled on a coarse lattice and scored by how much of the neighbourhood
+       * agrees, so this finds the *middle* of a forest rather than the first
+       * cell of one, which is usually a ragged edge two hundred metres wide.
+       */
+      jumpToBiome: (name: string, distance = 4) => {
+        const target = BIOMES.find((b) => Biome[b.id] === name);
+        if (!target) return false;
+        let bestScore = -1;
+        let bx = 0;
+        let bz = 0;
+        for (let gz = 4; gz < MACRO - 4; gz += 3) {
+          for (let gx = 4; gx < MACRO - 4; gx += 3) {
+            if (payload.biomeIds[gz * MACRO + gx] !== target.id) continue;
+            let score = 0;
+            for (let oz = -3; oz <= 3; oz++) {
+              for (let ox = -3; ox <= 3; ox++) {
+                if (payload.biomeIds[(gz + oz) * MACRO + gx + ox] === target.id) score++;
+              }
+            }
+            if (score > bestScore) {
+              bestScore = score;
+              bx = (gx / (MACRO - 1)) * 4096 - 2048;
+              bz = (gz / (MACRO - 1)) * 4096 - 2048;
+            }
+          }
+        }
+        if (bestScore < 0) return false;
+        director.jumpTo({ x: bx, z: bz, distance, polar: 0.72 });
         return true;
       },
       jumpToBiggestCity: (distance = 9) => {
@@ -289,7 +417,7 @@ export class App {
         this.selected = f;
         this.labels?.setSelected(f);
         this.info?.show(f);
-        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.95 });
+        director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.78 });
         return true;
       },
       flyToNamed: (name: string) => {
@@ -721,7 +849,9 @@ export class App {
 
     const focus = controls.focus;
     const camDistance = controls.cameraDistance;
-    view.update(dt, this.elapsed, focus.x, focus.z, camDistance);
+    // The previous frame's cost, which is what the city layer sizes its
+    // generation slice against — see `GENERATION_FRACTION`.
+    view.update(dt, this.elapsed, focus.x, focus.z, camDistance, this.lastFrameMs);
 
     // Labels, filtered by the layers that are actually on, and kept clear of the
     // interface panels.
@@ -778,6 +908,7 @@ export class App {
     this.renderer.render(view.scene, view.camera);
 
     const frameMs = performance.now() - t0;
+    this.lastFrameMs = frameMs;
     this.governQuality(frameMs);
     if (this.readout.showingDiagnostics) {
       const s = view.frameStats;
@@ -785,6 +916,7 @@ export class App {
         `${(1000 / Math.max(0.1, frameMs)).toFixed(0)} fps (${frameMs.toFixed(1)} ms)`,
         `${s.chunks} chunks · depth ${s.maxDepth} · ${(s.triangles / 1000).toFixed(0)}k tris`,
         `${s.plants.toLocaleString('en-US')} plants · ${s.buildings.toLocaleString('en-US')} buildings`,
+        `${s.planCities} towns · ${s.planBlocks.toLocaleString('en-US')} blocks · ${s.planParcels.toLocaleString('en-US')} plots · rebuild ${s.rebuildMs} ms`,
         `quality ${view.getQuality()} · dpr ${this.renderer.getPixelRatio().toFixed(2)}`,
         `labels ${this.labels?.onScreen.length ?? 0}`,
       ]);

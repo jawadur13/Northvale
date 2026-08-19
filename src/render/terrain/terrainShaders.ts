@@ -149,9 +149,16 @@ void main() {
   // Procedural relief below the texture's resolution. Only on land, and only
   // where the chunk is dense enough to carry it.
   float fade = nvDetailFade(chunkScale, uSegments);
-  float orogeny = texture(uSurfaceTex, uv).g;
+  vec4 surf = texture(uSurfaceTex, uv);
+  float orogeny = surf.g;
+  float developed = surf.r;
   float land = smoothstep(0.0, 0.05, h);
-  float roughness = (0.45 + orogeny * 1.9) * land;
+  // Built and cultivated ground is levelled ground. Attenuating the procedural
+  // relief under settlements is both true - a town site gets graded - and the
+  // thing that lets flat plot polygons sit on the terrain without z-fighting
+  // against detail the CPU side cannot see.
+  float levelled = 1.0 - developed * developed * 0.82;
+  float roughness = (0.45 + orogeny * 1.9) * land * levelled;
   vDetailFade = fade;
   vRoughness = roughness;
   h += nvTerrainDetail(worldXZ, roughness, fade);

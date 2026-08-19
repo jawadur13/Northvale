@@ -400,21 +400,138 @@ stream however many pixels it happens to occupy.
 Roads are coloured and dashed by class, following the cartographic convention that
 an unmetalled way is dashed.
 
-### Vegetation and built form
+### Built form
 
-Vegetation is a **scale-adaptive scatter**: instance spacing is derived each frame
-from the camera distance so the instance count stays inside a fixed budget wherever
-the camera is. Placement is a hash of the grid cell, so rebuilding after the camera
-moves produces the same trees in the same places rather than a new forest. Above the
-local tier it switches off entirely and the terrain shader's vegetation term carries
-the forests, which is why zooming out never costs frame rate.
+Vegetation has its own section below; placement there, as here, is a hash of the grid
+cell, so rebuilding after the camera moves produces the same trees in the same places
+rather than a new forest.
 
-Settlements are generated as plans from their own deterministic seed — cities get a
-radial street layout with density falling off from the centre, a curtain wall with
-towers, a keep, and piers if they are on the coast; towns get a main street; villages
-get a row along a lane. Everything is drawn from three instanced meshes, so twenty
-visible cities are three draw calls. Buildings are coloured from their culture's
-palette, so Sahvari adobe and Skarn turf-roofed halls are visibly different places.
+Settlements are **planned, then built**, from their own deterministic seed. The plan
+comes first: a street network — radial with a market square and ring streets, or a
+grid where the culture builds on a grid — subdivided into superblocks, then blocks,
+then burgage plots, with a district assigned to every block from where it sits
+relative to the centre, the wall and the water. Then the plots are built on. Each
+building is a rectangle fitted to *its own plot's street frontage*, one to five
+storeys by district, under a gable, hip, pyramid or flat roof according to how the
+culture builds, with the yard left behind it. Nothing is stamped from a prototype,
+which is why the street wall comes out continuous and irregular the way a real one
+is, and why Sahvari mudbrick under flat roofs and Skarn turf-roofed halls read as
+different places rather than as recoloured copies.
+
+Detail is chosen **per block**, not per settlement, from five tiers: full buildings,
+the same footprints capped flat at mid-roof height, one prism for the whole block at
+its estimated mean roof height, a flat parcel mosaic, and one polygon per block. A
+town you are standing over is therefore not all-or-nothing with the town on the
+horizon. Geometry is cached per block per tier and merged by `memcpy`, so the frequent
+operation — the visible set changing as the camera moves — is a run of typed-array
+copies rather than a regeneration, and the whole layer is three draw calls however
+many cities are in view — buildings, ground, and the works, which get their own
+because a quay has to stand on the waterline and everything else on the ground.
+
+Generating anything new is bounded by a wall-clock slice per rebuild, sized as a
+fraction of the frame that just went by: a large capital is 33,000 buildings and
+about a second and a half of work from cold, spread over the next several frames
+while those blocks draw a tier coarser. Proportional rather than fixed, because a
+fixed ten milliseconds is a fifth of a frame on a fast machine and a hundredth of
+one on a slow machine — so the machine that most needs the city to finish filling
+would be the one that never did, and it would go on paying for the coarse tier for
+as long as it did not.
+
+Where a settlement is fortified, the wall is built rather than drawn: a run of
+**panels between towers**, each panel level along its own stretch of ground, so a
+curtain crossing a hill steps the way real masonry does. Towers stand at the angles
+of the ring — a straight run of wall cannot be defended from itself — with
+intermediates on any stretch long enough to leave a blind spot, and a pair flanking
+each gate. A ditch runs outside it and a mural lane inside, kept clear the way a
+town that intends to repair its wall keeps it clear. Nothing is built standing in
+water: where the ring meets the sea the masonry stops, because there the water is
+the defence.
+
+A settlement on the water gets **harbour works**: a quay marched along its own
+shoreline, jetties standing square to their piece of shore and running out until
+they are over open water, a breakwater where there is a port worth sheltering, and
+hulls moored alongside. Where a road crosses a river the **bridge** is piers and a
+deck laid in bays, humped over the span the way an arched bridge is. All of this is
+found by sampling the terrain rather than assumed, so a town whose bay faces
+south-west gets its quay on the south-west.
+
+Buildings are drawn at **true scale, unexaggerated**, while the terrain beneath them
+is exaggerated. That is deliberate. A ten-metre house multiplied by the relief factor
+would be a forty-metre house and every town would read as a city of towers; relief
+exaggeration is a cartographic device for landforms and has no business being applied
+to things whose real size the viewer knows.
+
+### Vegetation
+
+Plants are scattered as a **ring of real planting** around the camera: inside it they
+stand at true height and at the density the biome actually supports, and outside it
+the terrain shader's own vegetation term carries the forests at no per-instance cost.
+The ring is as large as the instance budget allows and dissolves into the terrain
+colour over most of its width, so the handover is not an edge.
+
+That is a correction, not a design. It first held the ring at the camera's full view
+radius and scaled each instance up to compensate — a tree spaced 150 m from its
+neighbours drawn 150 m tall so the canopy would meet. It kept the budget and read as
+cover right up until buildings arrived at true scale, at which point the trees were
+revealed as monuments. **Cover is a matter of how many, not how large**, and the rest
+follows: spacing is nine metres, which is where a conifer canopy closes; a
+240,000-instance budget therefore reaches about two and a half kilometres; and past
+the height where a crown is a pixel wide the spacing loosens, because thinning a
+stand nobody can resolve is free and stopping short of the view is not.
+
+Every biome carries a **species mix** rather than one prototype — a boreal forest is
+spruce *and* birch *and* the standing dead timber neither of them cleared — and each
+species carries its own height range in metres. Two levels of detail: full geometry
+near, canopy alone beyond, cut to the same outline so nothing changes shape as it
+crosses the boundary. The far tier is a canopy, not the usual crossed billboards,
+because two crossed cards read as a literal X from overhead and overhead is the only
+angle this map is ever seen from.
+
+Forests have **structure**. Low-frequency noise opens clearings; a biome edge is
+denser than its interior, because light reaches the side of it; and woodland follows
+water, hardest where there is least of it — the line of green along a watercourse
+through dry country is one of the most recognisable things in any aerial view of
+anywhere.
+
+### The worked landscape
+
+Every settlement carries a **field belt**: a ring of worked land from just outside
+the built edge out to two or three times the town's radius, built as an annulus of
+sectors and subdivided by the same recursive halving that cuts city blocks. That is
+not a shortcut — a field is a convex parcel bounded by its neighbours, cut off the
+long axis of whatever it came from, exactly like a burgage plot.
+
+What a boundary *is* comes from the ground: hedge where hedges grow, dry-stone wall
+where the fields are full of stone and nothing grows tall, bank and ditch in wet
+country. It is drawn as the parcel's own outline — the whole parcel in the boundary
+colour with the crop laid inside it — so a hedged field is two polygons rather than
+a polygon and a ribbon. Crops run a four-colour rotation, and the share of the ring
+actually worked falls with distance, so the belt does not read as a dartboard drawn
+round the town. Nothing is ploughed on ground steeper than about one in three.
+Farmsteads stand out among the fields, house and barn set at right angles about a
+yard.
+
+Along the boundaries stand the trees somebody planted. **Hedgerow standards**, one
+every fifty metres or so, which is what turns a boundary from a coloured margin
+into something with height and a shadow; **windbreaks**, the same hedge grown twice
+as thick on the exposed side; and **orchard rows** in the towns' orchard districts —
+a rectilinear grid of equal small crowns, which occurs nowhere in nature and
+everywhere people grow fruit. A dry-stone wall carries nothing, which is most of
+why walled upland country reads as bare.
+
+These are handed to the vegetation scatter as extra sites rather than drawn
+separately, so they use the same prototypes, detail tiers and tinting as everything
+that grew on its own — and they are placed *before* the wild cover, so that when the
+budget runs short it is the wood that thins rather than the hedge. A wood missing
+one tree in ten still reads as a wood; a hedge missing one tree in ten stops being a
+line.
+
+A mine was a label and a dot. What makes one legible from the air is never the
+shaft — that is a hole a few metres across — but everything the shaft produced: the
+**spoil heap**, which is bigger than the workings and a colour that grows nowhere;
+the **benches** a quarry was cut in; the **pond** that is the whole point of a
+watermill. Each is described as the ground it disturbed, with the building an
+afterthought sitting on it.
 
 ### Camera
 
@@ -510,10 +627,17 @@ The world is enormous; the frame budget is not. What keeps it interactive:
 - **Frustum culling on real vertical bounds**, sampled lazily per node.
 - **Sub-texel relief is procedural**, so close-range detail costs instructions rather
   than memory.
-- **Everything instanced.** Vegetation is one draw call per plant type; a whole city
-  is three.
-- **Scale-adaptive budgets.** Vegetation spacing and settlement counts are derived
-  from camera distance to hold a fixed instance ceiling at any zoom.
+- **Everything batched.** Vegetation is one draw call per species and detail tier —
+  and only for the tiers actually growing in view, since each is allocated on demand.
+  Every city in view is three, however many buildings they hold.
+- **Built geometry is cached per block per tier** and merged by `memcpy`, so a camera
+  move is typed-array copies rather than a regeneration.
+- **Generation is budgeted by wall clock**, not by count: a rebuild spends a fraction
+  of the previous frame raising new buildings and draws the rest a tier coarser until
+  a later frame affords them. A slow machine fills a city over more frames, not in one
+  long freeze.
+- **Scale-adaptive budgets.** The vegetation ring is sized from the instance budget,
+  and its spacing loosens only where a crown is smaller than a pixel.
 - **Tier gating.** Vegetation stops above ~95 km, built form above ~150 km, surface
   detail noise above ~1,400 km, water chop with distance. Zooming out gets *cheaper*.
 - **Analytic sky.** The water reflection needs no render target.
@@ -563,14 +687,26 @@ src/
 │       ├── lore.ts            Descriptions built from real measurements
 │       ├── features.ts        Assembly, label tiers, cross-references
 │       ├── geometry.ts        Ribbon, lake, coastline and border geometry
-│       └── textures.ts        Height, climate, surface, region, overview
+│       ├── textures.ts        Height, climate, surface, region, overview
+│       └── city/              The inside of a settlement
+│           ├── geometry2d.ts  Convex polygon algebra: split, inset, clip, edge tagging
+│           ├── types.ts       Plan model, district rules, density and radius tables
+│           ├── streets.ts     Radial and grid street networks, boundary, gates
+│           ├── blocks.ts      Superblocks into blocks, grain coarsening outward
+│           ├── districts.ts   District assignment, built-fraction falloff
+│           ├── parcels.ts     Burgage-plot subdivision, lazy per block
+│           ├── plan.ts        Assembly, wall, singular landmarks, street trimming
+│           ├── buildings.ts   A building fitted to a plot; the closed-form block mass
+│           ├── walls.ts       The curtain as pieces: panels, towers, gates, ditch
+│           ├── harbour.ts     Quays marched along the shore, jetties, hulls
+│           └── geometry3d.ts  Extrusion: buildings, roofs, fortification, works
 ├── render/
 │   ├── WorldResources.ts      Textures and the shared uniform block
 │   ├── WorldView.ts           Scene graph, layers, per-frame budgets
 │   ├── Atmosphere.ts          Sky dome and the time-of-day light model
 │   ├── terrain/               Quadtree and terrain shaders
 │   ├── water/                 Ocean, lakes, wave model
-│   └── features/              Ribbons, vegetation, built form
+│   └── features/              Ribbons, plants, built form
 ├── camera/
 │   ├── MapControls.ts         Damped orbit-pan-zoom, touch and keyboard
 │   └── CameraDirector.ts      Arced flights
@@ -581,6 +717,7 @@ scripts/
 ├── smoke.ts                   Headless generation test with diagnostic images
 ├── diagnostics.ts             Elevation, climate, region and network renders
 ├── visual.ts                  Browser harness: screenshots and console capture
+├── measure.ts                 What the city generator builds, in metres
 └── png.ts                     Minimal PNG encoder for the harness
 ```
 
@@ -597,6 +734,17 @@ scripts/
 | The world's colour | `world/palette.ts` (both implementations) |
 | Label tiers | `gen/features.ts` |
 | A new anomaly | `gen/anomalies.ts` → `ANOMALIES` (a stamp function) |
+| How a district builds | `gen/city/types.ts` → `DISTRICTS`, `gen/city/buildings.ts` → `DISTRICT_FORM` |
+| How a culture builds | `gen/city/buildings.ts` → `STYLES` |
+| City detail radii and budgets | `render/features/CityMeshes.ts` |
+| What grows in a biome, and how tall | `gen/biomes.ts` — the `mix` on each entry |
+| Plant silhouettes | `render/features/PlantLibrary.ts` |
+| Canopy spacing, clearings, forest edges | `render/features/Vegetation.ts` |
+| Field size, crops and boundaries | `gen/rural/fields.ts` |
+| What a mine or quarry did to the ground | `gen/rural/works.ts` |
+| Hedgerow, windbreak and orchard planting | `gen/rural/planting.ts` |
+| Wall and tower proportions | `gen/city/walls.ts` |
+| Harbour layout | `gen/city/harbour.ts` |
 
 ---
 
@@ -633,8 +781,31 @@ every console error, page error and graphics warning. A shader that fails to com
 produces a black screen and no exception anywhere a unit test would look; this is
 what catches it.
 
+`npx tsx scripts/visual.ts --plans` runs a second set of ten views aimed at the
+inside of settlements: a radial capital at three zooms, a grid city, a desert city, a
+town, a village, a port at two heights and a bridge. Cities fill in over several
+frames, so each shot waits on `__nv.stats().citiesSettled` before firing — a
+photograph of a half-built city says nothing about how the finished thing looks,
+which is how several building bugs survived an earlier pass. The harness also pins
+the quality preset, because the application drops it when frames run long and
+software WebGL makes every frame run long. `--only=p3,p5,p10` runs a subset: a full
+pass is ten views of a large city on a software rasteriser, and checking one change
+should not cost ten minutes.
+
 Requires `npm run build` first and a local Chrome or Edge. It downloads no browser.
 Screenshots land in `out/shots/`.
+
+### `npx tsx scripts/measure.ts`
+
+Prints the real dimensions of what the city generator builds — wall heights and
+thicknesses, tower and gate counts, mean and tallest buildings, quay length, how far
+the harbour works are from the town centre, and how many of them stand in water.
+
+A screenshot cannot answer those questions. A wall four times too tall and a wall
+correctly proportioned look much the same from a kilometre up, next to buildings you
+have no independent scale for; and a coastline rendered at the lowest quality preset
+puts dry land under water, so a correctly placed quay looks wrong. Both of those
+cost real time in the session that built the walls, and this is the answer to them.
 
 The application also exposes `window.__nv` for scripting — `__nv.jumpToNamed('The
 Ouroboros')`, `__nv.setLayer('contours', true)`, `__nv.stats()` — which is how the

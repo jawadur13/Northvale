@@ -16,16 +16,19 @@
 import * as THREE from 'three';
 import {
   DEFAULT_EXAGGERATION,
+  HALF_KM,
+  MACRO,
   QUALITY_PRESETS,
   type QualityName,
   tierForDistance,
+  WORLD_KM,
   ZoomTier,
 } from '../core/config';
 import { clamp } from '../util/math';
 import type { WorldPayload } from '../world/types';
 import { Atmosphere } from './Atmosphere';
+import { CityMeshes } from './features/CityMeshes';
 import { Ribbon, WorldLines } from './features/Ribbons';
-import { Settlements3D } from './features/Settlements3D';
 import { Vegetation } from './features/Vegetation';
 import { TerrainSurface } from './terrain/TerrainSurface';
 import { Water } from './water/Water';
@@ -73,6 +76,13 @@ export interface FrameStats {
   maxDepth: number;
   plants: number;
   buildings: number;
+  planCities: number;
+  planBlocks: number;
+  planParcels: number;
+  /** Time the last city geometry reassembly took, in ms. */
+  rebuildMs: number;
+  /** False while the cities in view are still filling in from cold. */
+  citiesSettled: boolean;
   tier: ZoomTier;
 }
 
@@ -88,7 +98,7 @@ export class WorldView {
   readonly borders: WorldLines;
   readonly coastline: WorldLines;
   readonly vegetation: Vegetation;
-  readonly settlements: Settlements3D;
+  readonly cities: CityMeshes;
 
   private layers: LayerState = { ...DEFAULT_LAYERS };
   private quality: QualityName = 'high';
@@ -98,6 +108,11 @@ export class WorldView {
     maxDepth: 0,
     plants: 0,
     buildings: 0,
+    planCities: 0,
+    planBlocks: 0,
+    planParcels: 0,
+    rebuildMs: 0,
+    citiesSettled: true,
     tier: ZoomTier.World,
   };
 
@@ -183,26 +198,44 @@ export class WorldView {
     );
     this.scene.add(this.coastline.object);
 
+    // Nearest-cell biome lookup, for the field system: what a hedge is made of and
+    // whether ground is worth ploughing are properties of the country, not the town.
+    const biomeAt = (x: number, z: number): number => {
+      const gx = Math.min(MACRO - 1, Math.max(0, Math.round(((x + HALF_KM) / WORLD_KM) * (MACRO - 1))));
+      const gz = Math.min(MACRO - 1, Math.max(0, Math.round(((z + HALF_KM) / WORLD_KM) * (MACRO - 1))));
+      return payload.biomeIds[gz * MACRO + gx];
+    };
+
     this.vegetation = new Vegetation(
       u,
       payload.biomeIds,
       payload.climate,
+      payload.surface,
       heightAt,
       exag,
       preset.vegetationBudget,
     );
     this.scene.add(this.vegetation.group);
 
-    this.settlements = new Settlements3D(
+    // Approximate gradient from four height samples, in the same 0..1 units the
+    // simulation's slope field uses, so the city planner's thresholds transfer.
+    const slopeAt = (x: number, z: number) => {
+      const d = 0.08;
+      const gx = (heightAt(x + d, z) - heightAt(x - d, z)) / (2 * d);
+      const gz = (heightAt(x, z + d) - heightAt(x, z - d)) / (2 * d);
+      return Math.min(1, Math.hypot(gx, gz) / 0.45);
+    };
+    this.cities = new CityMeshes(
       u,
       payload.features,
       payload.regions,
       payload.cultures,
       heightAt,
-      exag,
-      preset.cityBudget,
+      slopeAt,
+      biomeAt,
+      preset.cityVertexBudget,
     );
-    this.scene.add(this.settlements.group);
+    this.scene.add(this.cities.group);
 
     this.applyLayers();
   }
@@ -235,7 +268,7 @@ export class WorldView {
     this.borders.setVisible(l.borders || l.political);
     this.coastline.setVisible(l.coastline);
     this.vegetation.setEnabled(l.vegetation);
-    this.settlements.setEnabled(l.settlements);
+    this.cities.setEnabled(l.settlements);
   }
 
   setExaggeration(v: number): void {
@@ -260,7 +293,7 @@ export class WorldView {
     this.terrain.setQuality(p.terrainSegments, p.maxQuadtreeDepth);
     this.resources.uniforms.uShadowSteps.value = p.shadowSteps;
     this.vegetation.setBudget(p.vegetationBudget);
-    this.settlements.setBudget(p.cityBudget);
+    this.cities.setVertexBudget(p.cityVertexBudget);
     this.water.setDetail(p.waterDetail);
   }
 
@@ -286,7 +319,15 @@ export class WorldView {
 
   // --- Per-frame ----------------------------------------------------------
 
-  update(dt: number, elapsed: number, focusX: number, focusZ: number, camDistance: number): void {
+  update(
+    dt: number,
+    elapsed: number,
+    focusX: number,
+    focusZ: number,
+    camDistance: number,
+    /** How long the last frame took, in ms. Sets the city generation slice. */
+    frameMs = 16,
+  ): void {
     const u = this.resources.uniforms;
     u.uTime.value = elapsed;
     u.uCamDistance.value = camDistance;
@@ -321,7 +362,10 @@ export class WorldView {
     this.water.follow(this.camera.position.x, this.camera.position.z);
     this.terrain.update(this.camera);
     this.vegetation.update(focusX, focusZ, camDistance);
-    this.settlements.update(this.camera.position.x, this.camera.position.z, camDistance);
+    this.cities.update(focusX, focusZ, camDistance, frameMs);
+    // The cities know what was planted round them; the scatter knows how to draw
+    // a tree. This is the one wire between them.
+    this.vegetation.setPlanting(this.cities.lastPlanting);
 
     // Near plane tightens as the camera descends, which is what keeps depth
     // precision usable across a range from 1.4 km to 7,600 km.
@@ -338,7 +382,13 @@ export class WorldView {
     this.stats.triangles = ts.triangles;
     this.stats.maxDepth = ts.maxDepth;
     this.stats.plants = this.vegetation.lastInstanceCount;
-    this.stats.buildings = this.settlements.lastBuildingCount;
+    const cs = this.cities.lastStats;
+    this.stats.buildings = cs.buildings;
+    this.stats.planCities = cs.cities;
+    this.stats.planBlocks = cs.blocks;
+    this.stats.planParcels = cs.parcels;
+    this.stats.rebuildMs = cs.rebuildMs;
+    this.stats.citiesSettled = cs.settled;
     this.stats.tier = tierForDistance(camDistance);
 
     void dt;
@@ -356,7 +406,7 @@ export class WorldView {
     this.borders.dispose();
     this.coastline.dispose();
     this.vegetation.dispose();
-    this.settlements.dispose();
+    this.cities.dispose();
     this.atmosphere.dispose();
     this.resources.dispose();
   }
