@@ -28,6 +28,7 @@ port     quay 61 pts / 1807 m, 0 points in water, 7 jetties all tipped over wate
 bridges  110 total, 102 snapped onto a channel, 8 with no channel within 14 km
 city     32,759 buildings from 3,300 blocks
 forest   145,000 plants over a 2.4 km ring at 9 m spacing, true heights
+planting 7,404 hedgerow and orchard trees round a city of 179,000
 fields   381 parcels over 7.7 km2 at a mean of 2.0 ha for a city of 179,000
 works    406 landmarks, 811 patches of disturbed ground
 ```
@@ -37,16 +38,11 @@ works    406 landmarks, 811 patches of disturbed ground
 Nothing is half-finished. What is left is either deliberately not built, with the
 reason recorded, or a known limit of the architecture. In rough order of value:
 
-1. **Wire cultivated land to the vegetation layer.** Orchard districts inside towns
-   and the field belt outside them both grow nothing, because the scatter
-   suppresses planting on developed ground and knows nothing about city blocks or
-   field parcels. `rural/fields.ts` now holds the shared notion of cultivated land
-   that would fix it. See §13.
-2. **Road construction** — embankments, cuttings, milestones. Deliberately skipped
+1. **Road construction** — embankments, cuttings, milestones. Deliberately skipped
    as the lowest-value part of §5; at one to five kilometres a road is already
    drawn at its minimum on-screen width. See §13.
-3. **Ground cover and hedgerow planting** — §12 has the reasoning for both.
-4. The deferred items in §6: terrain streaming, a larger world, and the deeper
+2. **Ground cover** — §12 has the reasoning.
+3. The deferred items in §6: terrain streaming, a larger world, and the deeper
    performance work. Each is written up with its cost and its risk.
 
 ## Known loose ends, all small

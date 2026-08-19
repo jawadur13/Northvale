@@ -15,6 +15,7 @@ import { buildBuildings } from '../src/world/gen/city/buildings';
 import { emitBridge, emitFortification, emitHarbour, newGeomBuilder } from '../src/world/gen/city/geometry3d';
 import { polyArea, polyCentroid } from '../src/world/gen/city/geometry2d';
 import { buildWorks } from '../src/world/gen/rural/works';
+import { buildPlanting } from '../src/world/gen/rural/planting';
 import { DEFAULT_SEED, FINE, HALF_KM, MACRO, WORLD_KM } from '../src/core/config';
 
 const w = generateWorld(DEFAULT_SEED, () => {}).payload;
@@ -295,5 +296,28 @@ bridges: ${bridges.length}`);
     }
     console.log(`\n${q.name} at ${q.x.toFixed(1)}, ${q.z.toFixed(1)}`);
     console.log(`  ground within 4.5 km: ${(lo * 1000).toFixed(0)}..${(hi * 1000).toFixed(0)} m, ${land}/${n} above sea level`);
+  }
+}
+
+// --- Planting: the trees people put there on purpose --------------------------
+{
+  for (const kind of ['city', 'village'] as const) {
+    const f = w.features.find((x) => x.kind === kind);
+    if (!f) continue;
+    const region = w.regions[f.region];
+    const plan = buildCityPlan({ feature: f, culture: region ? region.culture : 1, heightAt, slopeAt, biomeAt });
+    const sites = buildPlanting(plan.fields, plan.blocks, biomeAt, heightAt, plan.featureId);
+    const byPlant = new Map<string, number>();
+    let lo = Infinity;
+    let hi = 0;
+    for (const s of sites) {
+      byPlant.set(s.plant, (byPlant.get(s.plant) ?? 0) + 1);
+      lo = Math.min(lo, s.heightM);
+      hi = Math.max(hi, s.heightM);
+    }
+    const orchards = plan.blocks.filter((b) => b.district === 'orchard').length;
+    console.log(`\n${kind} ${f.name}: ${sites.length} planted trees over ${plan.fields.parcels.length} parcels and ${orchards} orchard blocks`);
+    console.log(`  ${[...byPlant].map(([k, n]) => `${k} ${n}`).join(', ')}`);
+    console.log(`  heights ${lo.toFixed(1)}..${hi.toFixed(1)} m`);
   }
 }

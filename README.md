@@ -511,6 +511,21 @@ round the town. Nothing is ploughed on ground steeper than about one in three.
 Farmsteads stand out among the fields, house and barn set at right angles about a
 yard.
 
+Along the boundaries stand the trees somebody planted. **Hedgerow standards**, one
+every fifty metres or so, which is what turns a boundary from a coloured margin
+into something with height and a shadow; **windbreaks**, the same hedge grown twice
+as thick on the exposed side; and **orchard rows** in the towns' orchard districts —
+a rectilinear grid of equal small crowns, which occurs nowhere in nature and
+everywhere people grow fruit. A dry-stone wall carries nothing, which is most of
+why walled upland country reads as bare.
+
+These are handed to the vegetation scatter as extra sites rather than drawn
+separately, so they use the same prototypes, detail tiers and tinting as everything
+that grew on its own — and they are placed *before* the wild cover, so that when the
+budget runs short it is the wood that thins rather than the hedge. A wood missing
+one tree in ten still reads as a wood; a hedge missing one tree in ten stops being a
+line.
+
 A mine was a label and a dot. What makes one legible from the air is never the
 shaft — that is a hole a few metres across — but everything the shaft produced: the
 **spoil heap**, which is bigger than the workings and a colour that grows nowhere;
@@ -727,6 +742,7 @@ scripts/
 | Canopy spacing, clearings, forest edges | `render/features/Vegetation.ts` |
 | Field size, crops and boundaries | `gen/rural/fields.ts` |
 | What a mine or quarry did to the ground | `gen/rural/works.ts` |
+| Hedgerow, windbreak and orchard planting | `gen/rural/planting.ts` |
 | Wall and tower proportions | `gen/city/walls.ts` |
 | Harbour layout | `gen/city/harbour.ts` |
 

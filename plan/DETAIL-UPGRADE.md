@@ -694,7 +694,7 @@ Three terms, all multipliers on the cover the classifier already decided:
   alpine mixes instead, which is the part of that item that can actually be seen.
 - **Hedgerows, orchard rows, windbreaks.** All three are boundaries of field
   systems, and field systems are Phase C. Building them now would mean inventing
-  the field boundaries twice.
+  the field boundaries twice. *(Built after Phase C — see §14.)*
 
 ### Carried into Phase C
 
@@ -781,12 +781,61 @@ afterthought sitting on it. 406 landmarks, 811 patches of disturbed ground.
 
 ### Carried forward
 
-- Orchard districts inside towns still grow nothing. The scatter suppresses
-  planting on developed ground and knows nothing about city blocks or field
-  parcels; the shared notion of cultivated land that would fix it now exists in
-  `rural/fields.ts` but is not wired to the vegetation layer.
+- ~~Orchard districts inside towns still grow nothing.~~ *Closed in §14.*
 - The field belt feeds a village but not a city: a settlement of 179,000 works
   7.7 km², which is a fraction of what it eats. That is correct — a city imports,
   and the rest of its supply is other people's villages, which have their own
   belts — but it means the belt scales with the town's *radius* rather than with
   its appetite.
+
+
+---
+
+## 14. Closing the planting gap ✅
+
+**Shipped.** The one item that fell between two phases rather than being dropped
+on purpose.
+
+§12 deferred hedgerows, orchard rows and windbreaks to Phase C, on the grounds
+that all three are boundaries of field systems and building them early would mean
+inventing the boundaries twice. Phase C then built the boundaries and never came
+back to plant them, so the belt had coloured margins with nothing growing along
+them and the towns had orchard districts growing nothing at all.
+
+| File | What it does |
+| --- | --- |
+| `world/gen/rural/planting.ts` | Turns field boundaries and orchard blocks into trees |
+| `render/features/Vegetation.ts` | `setPlanting`, and the sites appended to the scatter |
+| `render/features/CityMeshes.ts` | Collects the planting for the plans it draws |
+
+**Drawn by the scatter, not beside it.** The planting is handed to the vegetation
+layer as extra sites rather than emitted as its own geometry, so hedgerow trees get
+the same prototypes, the same two detail tiers and the same per-instance tinting as
+everything that grew on its own. The alternative — flat prisms in the works mesh,
+next to the farmsteads — would have been the third copy of a tree in this codebase
+and the only one that did not look like the others.
+
+**Placed before the wild scatter, not after.** They were appended after at first,
+which meant that when the budget ran short the *hedges* gave way. That is exactly
+backwards: a wood missing one tree in ten still reads as a wood, and a hedge missing
+one tree in ten stops being a line — and a line is the whole reason a hedgerow is
+worth drawing.
+
+Three details that make the difference between a hedge and a row of dots:
+
+- **A boundary is shared.** An edge is keyed by its own midpoint rather than by the
+  parcel offering it, so both neighbours hash the same value and only one plants
+  it. Without that every hedge is planted twice and the belt comes out as a grid of
+  double rows.
+- **A dry-stone wall carries nothing.** Which is most of why walled upland country
+  reads as bare, and it falls out of the boundary kind the field system already
+  chose from the biome.
+- **An orchard is a grid.** Rectilinear rows of equal small crowns occur nowhere in
+  nature and everywhere people grow fruit; it is the most artificial-looking thing
+  in any landscape and the one that most obviously means people. Fruit trees are
+  kept to four or six metres, because nobody picks from a forty-foot ladder.
+
+**Measured on the default seed:** a city of 179,000 plants 7,404 trees over 381
+parcels and 129 orchard blocks; a village plants 942 over 161 parcels and 9. Heights
+run 1.4 to 16 m — hedgerow standards and orchard trees, never forest giants, because
+each stood alone in the wind its whole life.
