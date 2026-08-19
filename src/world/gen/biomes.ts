@@ -56,7 +56,28 @@ export type PlantKind =
   | 'shrub'
   | 'snowpine'
   | 'reed'
-  | 'baobab';
+  | 'baobab'
+  | 'birch'
+  | 'deadwood'
+  | 'boulder';
+
+/**
+ * One species in a biome's mix.
+ *
+ * `heightM` is the real height range of a mature specimen, in metres, and is used
+ * as such: plants are drawn at true scale beside buildings drawn at true scale.
+ * Getting cover by making the trees bigger is the one thing that cannot be done
+ * here, which is why cover is a matter of *how many*, not how large.
+ */
+export interface Species {
+  plant: PlantKind;
+  /** Relative frequency within the mix. */
+  weight: number;
+  /** Mature height range in metres. */
+  heightM: [number, number];
+  /** Base foliage colour, packed RGB. Per-instance jitter is applied on top. */
+  tint: number;
+}
 
 export interface BiomeDef {
   id: Biome;
@@ -67,13 +88,26 @@ export interface BiomeDef {
   color: number;
   /** 0..1 vegetation cover, drives instanced scatter density. */
   cover: number;
-  /** Which instanced plant prototype dominates. */
+  /** Which instanced plant prototype dominates. Used by the legend. */
   plant: PlantKind;
+  /**
+   * What actually grows here, in proportion.
+   *
+   * A biome with an empty mix grows nothing — bare rock, ice, open water, moving
+   * sand. Everything else gets at least two entries, because a stand of one
+   * silhouette repeated reads as wallpaper from any height.
+   */
+  mix: Species[];
   /** Suitability for farming, 0..1. Feeds settlement scoring. */
   fertility: number;
   /** Difficulty of crossing, 0..1. Feeds road cost. */
   traversal: number;
   description: string;
+}
+
+/** Shorthand for one species: prototype, weight, height range in metres, tint. */
+function sp(plant: PlantKind, weight: number, lo: number, hi: number, tint: number): Species {
+  return { plant, weight, heightM: [lo, hi], tint };
 }
 
 function def(
@@ -83,81 +117,116 @@ function def(
   color: number,
   cover: number,
   plant: PlantKind,
+  mix: Species[],
   fertility: number,
   traversal: number,
   description: string,
 ): BiomeDef {
-  return { id, name, group, color, cover, plant, fertility, traversal, description };
+  return { id, name, group, color, cover, plant, mix, fertility, traversal, description };
 }
 
 export const BIOMES: BiomeDef[] = [
-  def(Biome.Ocean, 'Open Ocean', 'water', 0x1b3a56, 0, 'none', 0, 1,
+  def(Biome.Ocean, 'Open Ocean', 'water', 0x1b3a56, 0, 'none',
+    [], 0, 1,
     'Deep blue water beyond the continental shelf.'),
-  def(Biome.DeepOcean, 'Abyssal Ocean', 'water', 0x102539, 0, 'none', 0, 1,
+  def(Biome.DeepOcean, 'Abyssal Ocean', 'water', 0x102539, 0, 'none',
+    [], 0, 1,
     'The unlit deep, kilometres below the surface.'),
-  def(Biome.Shelf, 'Coastal Shelf', 'water', 0x2f6a86, 0, 'none', 0, 0.9,
+  def(Biome.Shelf, 'Coastal Shelf', 'water', 0x2f6a86, 0, 'none',
+    [], 0, 0.9,
     'Shallow, sunlit water over the drowned edge of the land.'),
-  def(Biome.Lake, 'Lake', 'water', 0x2b5f7d, 0, 'none', 0, 0.95,
+  def(Biome.Lake, 'Lake', 'water', 0x2b5f7d, 0, 'none',
+    [], 0, 0.95,
     'Standing fresh water held in a basin.'),
-  def(Biome.River, 'River', 'water', 0x35708c, 0, 'reed', 0.9, 0.7,
+  def(Biome.River, 'River', 'water', 0x35708c, 0, 'reed',
+    [sp('reed', 6, 1.5, 3, 0x6d7a3c), sp('broadleaf', 2, 9, 17, 0x3f5f30)], 0.9, 0.7,
     'Flowing fresh water cutting its own valley.'),
-  def(Biome.Beach, 'Beach', 'arid', 0xd6c6a0, 0.05, 'shrub', 0.15, 0.1,
+  def(Biome.Beach, 'Beach', 'arid', 0xd6c6a0, 0.05, 'shrub',
+    [sp('shrub', 5, 0.8, 2, 0x6f7546), sp('palm', 1, 8, 15, 0x44603a)], 0.15, 0.1,
     'Sand and shingle where the sea meets the land.'),
-  def(Biome.RockyShore, 'Rocky Shore', 'arid', 0x8d8578, 0.08, 'shrub', 0.1, 0.35,
+  def(Biome.RockyShore, 'Rocky Shore', 'arid', 0x8d8578, 0.08, 'shrub',
+    [sp('shrub', 4, 0.6, 1.6, 0x666c45), sp('boulder', 3, 0.8, 2.4, 0x7d766a)], 0.1, 0.35,
     'Wave-cut stone and tide pools.'),
-  def(Biome.IceSheet, 'Ice Sheet', 'ice', 0xe6edf4, 0, 'none', 0, 0.8,
+  def(Biome.IceSheet, 'Ice Sheet', 'ice', 0xe6edf4, 0, 'none',
+    [], 0, 0.8,
     'Permanent ice, hundreds of metres thick.'),
-  def(Biome.Glacier, 'Glacier', 'ice', 0xd0e0ea, 0, 'none', 0, 0.9,
+  def(Biome.Glacier, 'Glacier', 'ice', 0xd0e0ea, 0, 'none',
+    [], 0, 0.9,
     'A river of ice grinding slowly downhill.'),
-  def(Biome.Tundra, 'Tundra', 'ice', 0x8e9384, 0.18, 'shrub', 0.12, 0.35,
+  def(Biome.Tundra, 'Tundra', 'ice', 0x8e9384, 0.18, 'shrub',
+    [sp('shrub', 8, 0.4, 1.2, 0x5e6a48), sp('boulder', 3, 0.6, 1.8, 0x807a70), sp('deadwood', 1, 3, 6, 0x8a8175)], 0.12, 0.35,
     'Frozen ground, lichen and dwarf willow.'),
-  def(Biome.SnowForest, 'Snow Forest', 'forest', 0x4e6157, 0.62, 'snowpine', 0.22, 0.55,
+  def(Biome.SnowForest, 'Snow Forest', 'forest', 0x4e6157, 0.62, 'snowpine',
+    [sp('snowpine', 7, 14, 26, 0x3d5348), sp('pine', 3, 12, 22, 0x2f4636), sp('deadwood', 1, 8, 15, 0x8d8478)], 0.22, 0.55,
     'Spruce and fir under a permanent snow load.'),
-  def(Biome.BorealForest, 'Boreal Forest', 'forest', 0x3f5344, 0.78, 'pine', 0.3, 0.6,
+  def(Biome.BorealForest, 'Boreal Forest', 'forest', 0x3f5344, 0.78, 'pine',
+    [sp('pine', 6, 15, 28, 0x2c4531), sp('birch', 3, 11, 20, 0x5f7440), sp('deadwood', 1, 9, 17, 0x8a8072)], 0.3, 0.6,
     'Endless conifer, peat and cold black water.'),
-  def(Biome.ColdDesert, 'Cold Desert', 'arid', 0x9d9a8d, 0.05, 'shrub', 0.05, 0.3,
+  def(Biome.ColdDesert, 'Cold Desert', 'arid', 0x9d9a8d, 0.05, 'shrub',
+    [sp('shrub', 6, 0.4, 1.1, 0x6a6d4c), sp('boulder', 4, 0.7, 2.2, 0x86806f)], 0.05, 0.3,
     'Dry, wind-scoured ground too cold for trees.'),
-  def(Biome.Steppe, 'Steppe', 'grass', 0xa39c69, 0.3, 'shrub', 0.4, 0.15,
+  def(Biome.Steppe, 'Steppe', 'grass', 0xa39c69, 0.3, 'shrub',
+    [sp('shrub', 9, 0.6, 1.6, 0x77794a), sp('broadleaf', 1, 7, 13, 0x4f6537)], 0.4, 0.15,
     'Dry grassland rolling to the horizon.'),
-  def(Biome.Grassland, 'Grassland', 'grass', 0x86974f, 0.35, 'shrub', 0.72, 0.1,
+  def(Biome.Grassland, 'Grassland', 'grass', 0x86974f, 0.35, 'shrub',
+    [sp('shrub', 7, 0.7, 1.8, 0x6f7c42), sp('broadleaf', 3, 10, 19, 0x44622f)], 0.72, 0.1,
     'Deep-rooted grass on good soil.'),
-  def(Biome.Farmland, 'Farmland', 'grass', 0x93a055, 0.4, 'broadleaf', 1, 0.08,
+  def(Biome.Farmland, 'Farmland', 'grass', 0x93a055, 0.4, 'broadleaf',
+    [sp('broadleaf', 5, 9, 16, 0x486a30), sp('shrub', 4, 0.8, 2, 0x6d7a43), sp('birch', 1, 8, 14, 0x627a44)], 1, 0.08,
     'Field systems, hedgerows and drove roads.'),
-  def(Biome.Shrubland, 'Shrubland', 'grass', 0x8b8a55, 0.42, 'shrub', 0.45, 0.25,
+  def(Biome.Shrubland, 'Shrubland', 'grass', 0x8b8a55, 0.42, 'shrub',
+    [sp('shrub', 8, 0.7, 2, 0x757646), sp('boulder', 2, 0.6, 1.6, 0x8a8372), sp('broadleaf', 1, 6, 11, 0x51602f)], 0.45, 0.25,
     'Aromatic scrub on thin, stony soil.'),
-  def(Biome.TemperateForest, 'Temperate Forest', 'forest', 0x4a6b3d, 0.86, 'broadleaf', 0.6, 0.5,
+  def(Biome.TemperateForest, 'Temperate Forest', 'forest', 0x4a6b3d, 0.86, 'broadleaf',
+    [sp('broadleaf', 6, 16, 30, 0x385a2a), sp('birch', 2, 13, 23, 0x5c7440), sp('pine', 2, 15, 27, 0x2f4a33), sp('deadwood', 1, 10, 18, 0x8b8274)], 0.6, 0.5,
     'Oak, beech and ash in a closed canopy.'),
-  def(Biome.AncientForest, 'Ancient Forest', 'forest', 0x35502f, 0.95, 'broadleaf', 0.5, 0.75,
+  def(Biome.AncientForest, 'Ancient Forest', 'forest', 0x35502f, 0.95, 'broadleaf',
+    [sp('broadleaf', 7, 24, 42, 0x2a4622), sp('pine', 2, 22, 38, 0x27402c), sp('deadwood', 2, 14, 26, 0x7f7669)], 0.5, 0.75,
     'Never cleared, never fully surveyed, and very dark.'),
-  def(Biome.PineForest, 'Pine Forest', 'forest', 0x3c5741, 0.82, 'pine', 0.35, 0.55,
+  def(Biome.PineForest, 'Pine Forest', 'forest', 0x3c5741, 0.82, 'pine',
+    [sp('pine', 8, 17, 30, 0x2f4a35), sp('birch', 1, 12, 21, 0x5d7241), sp('deadwood', 1, 10, 19, 0x8a8073)], 0.35, 0.55,
     'Straight trunks, needle floor, resin in the air.'),
-  def(Biome.Rainforest, 'Rainforest', 'forest', 0x2c5330, 0.98, 'broadleaf', 0.55, 0.9,
+  def(Biome.Rainforest, 'Rainforest', 'forest', 0x2c5330, 0.98, 'broadleaf',
+    [sp('broadleaf', 6, 26, 45, 0x22461f), sp('palm', 3, 18, 32, 0x2c5426), sp('reed', 2, 2, 4, 0x4a6a2c)], 0.55, 0.9,
     'Rain almost every day and thirty metres of canopy.'),
-  def(Biome.TropicalForest, 'Tropical Forest', 'forest', 0x3a6236, 0.9, 'palm', 0.62, 0.7,
+  def(Biome.TropicalForest, 'Tropical Forest', 'forest', 0x3a6236, 0.9, 'palm',
+    [sp('palm', 5, 15, 26, 0x336035), sp('broadleaf', 4, 18, 32, 0x2d5227), sp('reed', 1, 2, 4, 0x51702f)], 0.62, 0.7,
     'Warm broadleaf forest with a hard monsoon season.'),
-  def(Biome.Savanna, 'Savanna', 'grass', 0xa39a5c, 0.28, 'baobab', 0.45, 0.12,
+  def(Biome.Savanna, 'Savanna', 'grass', 0xa39a5c, 0.28, 'baobab',
+    [sp('shrub', 6, 0.8, 2.2, 0x7c7644), sp('baobab', 3, 9, 18, 0x5c6432), sp('deadwood', 1, 5, 9, 0x8d8471)], 0.45, 0.12,
     'Tall grass, scattered flat-topped trees, a long dry season.'),
-  def(Biome.Desert, 'Desert', 'arid', 0xc9ab74, 0.03, 'cactus', 0.03, 0.4,
+  def(Biome.Desert, 'Desert', 'arid', 0xc9ab74, 0.03, 'cactus',
+    [sp('cactus', 6, 1.5, 4, 0x53663a), sp('boulder', 4, 0.6, 1.8, 0x9a8b6c)], 0.03, 0.4,
     'Less than a hundred millimetres of rain in a year.'),
-  def(Biome.DuneSea, 'Dune Sea', 'arid', 0xdcbc82, 0.01, 'none', 0.01, 0.85,
+  def(Biome.DuneSea, 'Dune Sea', 'arid', 0xdcbc82, 0.01, 'none',
+    [], 0.01, 0.85,
     'Moving sand in ranks a hundred metres high.'),
-  def(Biome.RockyDesert, 'Rocky Desert', 'arid', 0xa8906c, 0.04, 'cactus', 0.04, 0.5,
+  def(Biome.RockyDesert, 'Rocky Desert', 'arid', 0xa8906c, 0.04, 'cactus',
+    [sp('cactus', 4, 1.2, 3.2, 0x4f6238), sp('boulder', 6, 0.8, 2.6, 0x8f8168)], 0.04, 0.5,
     'Stone pavement swept clean of sand by the wind.'),
-  def(Biome.Badlands, 'Badlands', 'arid', 0xa07a58, 0.06, 'shrub', 0.06, 0.7,
+  def(Biome.Badlands, 'Badlands', 'arid', 0xa07a58, 0.06, 'shrub',
+    [sp('shrub', 5, 0.5, 1.4, 0x6f6a44), sp('boulder', 5, 0.9, 3, 0x8d7357), sp('deadwood', 1, 4, 8, 0x8f8577)], 0.06, 0.7,
     'Soft rock cut into a maze by flash floods.'),
-  def(Biome.Marsh, 'Marsh', 'wetland', 0x5c6b46, 0.5, 'reed', 0.5, 0.8,
+  def(Biome.Marsh, 'Marsh', 'wetland', 0x5c6b46, 0.5, 'reed',
+    [sp('reed', 8, 1.6, 3.2, 0x62703a), sp('shrub', 2, 0.8, 2, 0x5f6c40)], 0.5, 0.8,
     'Reed beds and shifting channels, no firm ground anywhere.'),
-  def(Biome.Swamp, 'Swamp', 'wetland', 0x445434, 0.8, 'broadleaf', 0.55, 0.9,
+  def(Biome.Swamp, 'Swamp', 'wetland', 0x445434, 0.8, 'broadleaf',
+    [sp('broadleaf', 5, 14, 25, 0x33502a), sp('reed', 4, 1.8, 3.4, 0x5b6c36), sp('deadwood', 2, 8, 16, 0x7d7466)], 0.55, 0.9,
     'Standing water under a closed canopy.'),
-  def(Biome.Mangrove, 'Mangrove', 'wetland', 0x415c3f, 0.85, 'broadleaf', 0.4, 0.95,
+  def(Biome.Mangrove, 'Mangrove', 'wetland', 0x415c3f, 0.85, 'broadleaf',
+    [sp('broadleaf', 6, 8, 16, 0x36532f), sp('reed', 3, 1.6, 3, 0x566a34)], 0.4, 0.95,
     'Salt-tolerant forest walking out into the tide.'),
-  def(Biome.AlpineMeadow, 'Alpine Meadow', 'alpine', 0x71804f, 0.3, 'shrub', 0.3, 0.5,
+  def(Biome.AlpineMeadow, 'Alpine Meadow', 'alpine', 0x71804f, 0.3, 'shrub',
+    [sp('shrub', 7, 0.4, 1.2, 0x64733f), sp('boulder', 3, 0.8, 2.4, 0x827b6f), sp('snowpine', 1, 6, 12, 0x3e5548)], 0.3, 0.5,
     'Short flowering turf above the treeline.'),
-  def(Biome.BareRock, 'Bare Rock', 'alpine', 0x7c766e, 0.02, 'none', 0.02, 0.9,
+  def(Biome.BareRock, 'Bare Rock', 'alpine', 0x7c766e, 0.02, 'none',
+    [sp('boulder', 10, 0.9, 3.4, 0x7d766e)], 0.02, 0.9,
     'Frost-shattered stone and scree.'),
-  def(Biome.Volcanic, 'Volcanic Waste', 'alpine', 0x4a4340, 0.05, 'shrub', 0.25, 0.85,
+  def(Biome.Volcanic, 'Volcanic Waste', 'alpine', 0x4a4340, 0.05, 'shrub',
+    [sp('boulder', 7, 1, 3.6, 0x504944), sp('shrub', 3, 0.4, 1.2, 0x556040)], 0.25, 0.85,
     'Black ash and old lava, fertile once it weathers.'),
-  def(Biome.Salt, 'Salt Flat', 'arid', 0xd9d6c8, 0.01, 'none', 0.02, 0.3,
+  def(Biome.Salt, 'Salt Flat', 'arid', 0xd9d6c8, 0.01, 'none',
+    [], 0.02, 0.3,
     'A dry lake bed, blinding white at noon.'),
 ];
 
