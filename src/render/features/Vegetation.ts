@@ -32,6 +32,7 @@ import { hash2 } from '../../util/rng';
 import { clamp } from '../../util/math';
 import { Biome, BIOME_BY_ID, type Species } from '../../world/gen/biomes';
 import { buildPlant, PLANT_KINDS, type PlantDetail } from './PlantLibrary';
+import type { PlantingSite } from '../../world/gen/rural/planting';
 import type { WorldUniforms } from '../WorldResources';
 
 const PLANT_VERTEX = /* glsl */ `
@@ -215,6 +216,19 @@ export class Vegetation {
   private enabled = true;
   private instanceCount = 0;
 
+  /**
+   * Trees somebody planted, from the city plans currently drawn.
+   *
+   * Kept separate from the scatter's own grid because they are not a function of
+   * the climate at all: a hedgerow standard is where it is because a hedge was
+   * laid round a field, and an orchard is a grid because someone set it out. They
+   * are appended as extra sites so they share every prototype, detail tier and
+   * tint with what grew on its own.
+   */
+  private planting: readonly PlantingSite[] = [];
+  private plantingRevision = 0;
+  private lastPlantingRevision = -1;
+
   /** Bucket keys, in a fixed order, so a site can name one with a byte. */
   private keys: string[] = [];
 
@@ -280,6 +294,20 @@ export class Vegetation {
     this.lastRadius = -1;
   }
 
+  /**
+   * Hands the scatter the deliberate planting for the cities in view.
+   *
+   * Cheap to call every frame: the array is compared by identity, and a change
+   * forces one rebuild rather than being folded into the camera's own threshold —
+   * a hedge that appears only once you happen to pan far enough is worse than no
+   * hedge at all.
+   */
+  setPlanting(sites: readonly PlantingSite[]): void {
+    if (sites === this.planting) return;
+    this.planting = sites;
+    this.plantingRevision++;
+  }
+
   setEnabled(v: boolean): void {
     this.enabled = v;
     this.group.visible = v;
@@ -326,6 +354,7 @@ export class Vegetation {
 
     const moved = Math.hypot(focusX - this.lastCenterX, focusZ - this.lastCenterZ);
     const zoomChanged = Math.abs(radius - this.lastRadius) / Math.max(radius, 1e-6) > 0.12;
+    const plantingChanged = this.plantingRevision !== this.lastPlantingRevision;
     // The ring is a ground distance from the focus; the fade is a *view* distance
     // from the eye, and the two differ by the whole height of the camera. Fading
     // at the ring radius alone discards the entire scatter the moment the camera
@@ -335,7 +364,8 @@ export class Vegetation {
     // reads as a disc of texture lying on the landscape.
     this.material.uniforms.uFadeStart.value = camDistance + radius * 0.2;
     this.material.uniforms.uFadeEnd.value = camDistance + radius;
-    if (moved < radius * 0.14 && !zoomChanged && this.lastRadius > 0) return;
+    if (moved < radius * 0.14 && !zoomChanged && !plantingChanged && this.lastRadius > 0) return;
+    this.lastPlantingRevision = this.plantingRevision;
 
     this.lastCenterX = focusX;
     this.lastCenterZ = focusZ;
@@ -371,6 +401,41 @@ export class Vegetation {
     const budget = this.budget;
 
     let n = 0;
+    // --- What people planted -------------------------------------------------
+    // Placed *before* the wild scatter, so when the budget runs short it is the
+    // wild cover that gives way. A wood missing one tree in ten still reads as a
+    // wood; a hedge missing one tree in ten stops being a line, and a line is the
+    // entire reason a hedgerow is worth drawing.
+    for (const site of this.planting) {
+      if (n >= budget) break;
+      const dx = site.x - cx;
+      const dz = site.z - cz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+
+      const key = `${site.plant}:${d2 < fullR2 ? 'full' : 'canopy'}`;
+      const bucket = this.keys.indexOf(key);
+      if (bucket < 0) continue;
+      const h = this.heightAt(site.x, site.z);
+      if (h <= 0.001) continue;
+
+      const gx = Math.round(site.x * 1000);
+      const gz = Math.round(site.z * 1000);
+      this.siteX[n] = site.x;
+      this.siteZ[n] = site.z;
+      this.siteY[n] = h * exag;
+      this.siteScale[n] = site.heightM * 0.001;
+      this.siteAngle[n] = hash2(gx, gz, 0x9d31) * Math.PI * 2;
+
+      const shade = 0.84 + hash2(gx, gz, 0x60d7) * 0.3;
+      const warm = 0.95 + hash2(gx, gz, 0x0b7f) * 0.12;
+      this.siteTint[n * 3] = (((site.tint >> 16) & 255) / 255) * shade * warm;
+      this.siteTint[n * 3 + 1] = (((site.tint >> 8) & 255) / 255) * shade;
+      this.siteTint[n * 3 + 2] = ((site.tint & 255) / 255) * shade * (2 - warm);
+      this.siteBucket[n] = bucket;
+      n++;
+    }
+
     for (let gz = g0z; gz <= g1z && n < budget; gz++) {
       for (let gx = g0x; gx <= g1x && n < budget; gx++) {
         // Deterministic jitter inside the cell, so the same tree lands in the

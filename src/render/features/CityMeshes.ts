@@ -34,6 +34,7 @@ import { buildParcels } from '../../world/gen/city/parcels';
 import { buildBuildings, estimateBlockMass } from '../../world/gen/city/buildings';
 import { cropPoly } from '../../world/gen/rural/fields';
 import { buildWorks } from '../../world/gen/rural/works';
+import { buildPlanting, type PlantingSite } from '../../world/gen/rural/planting';
 import {
   emitBlockMass,
   emitBridge,
@@ -523,6 +524,17 @@ export class CityMeshes {
   private plans = new Map<number, CityPlan>();
   private bridges: Feature[];
   private bridgeGeom = new Map<number, BlockGeometry>();
+  /**
+   * Hedgerow, windbreak and orchard trees for the cities currently drawn.
+   *
+   * Collected here because this is where the plans live, and handed to the
+   * vegetation layer to draw — the scatter owns the prototypes, the detail tiers
+   * and the tinting, and duplicating any of that here to plant a hedge would be
+   * the third copy of a tree in this codebase.
+   */
+  private planting: PlantingSite[] = [];
+  private plantingKey = '';
+
   /** Mines, quarries and mills — landmarks that disturbed the ground they sit on. */
   private industry: Feature[];
   private industryGeom = new Map<number, BlockGeometry>();
@@ -836,6 +848,11 @@ export class CityMeshes {
     return frozen;
   }
 
+  /** The deliberate planting for the cities in view, rebuilt when that set changes. */
+  get lastPlanting(): readonly PlantingSite[] {
+    return this.planting;
+  }
+
   /** One landmark's workings, baked once. */
   private industryGeometry(f: Feature): BlockGeometry {
     const cached = this.industryGeom.get(f.id);
@@ -980,6 +997,7 @@ export class CityMeshes {
     let vertexTotal = 0;
     let flatVertex = 0;
     let flatIndex = 0;
+    const plantedHere: CityPlan[] = [];
     let blockCount = 0;
     let buildingCount = 0;
     let parcelCount = 0;
@@ -1053,6 +1071,17 @@ export class CityMeshes {
         addFlat(this.flatFields(plan));
         const farms = this.fieldBuildings(plan, culture);
         if (farms.pos.length) works.push(farms);
+
+        if (!plan.planting) {
+          plan.planting = buildPlanting(
+            plan.fields,
+            plan.blocks,
+            this.biomeAt,
+            this.heightAt,
+            plan.featureId,
+          );
+        }
+        plantedHere.push(plan);
       }
 
       if (cityD < r2 + plan.radiusKm) {
@@ -1157,6 +1186,14 @@ export class CityMeshes {
     this.flatGeo.setIndex(new THREE.BufferAttribute(fidx, 1));
     this.flatGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 6000);
     this.flatMesh.geometry = this.flatGeo;
+
+    // The planting changes only when the set of cities drawn changes, so it is
+    // rebuilt on that key rather than on every camera move.
+    const key = plantedHere.map((p) => p.featureId).join(',');
+    if (key !== this.plantingKey) {
+      this.plantingKey = key;
+      this.planting = plantedHere.flatMap((p) => p.planting ?? []);
+    }
 
     this.stats = {
       cities: features.length,

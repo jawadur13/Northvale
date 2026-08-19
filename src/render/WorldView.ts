@@ -363,6 +363,9 @@ export class WorldView {
     this.terrain.update(this.camera);
     this.vegetation.update(focusX, focusZ, camDistance);
     this.cities.update(focusX, focusZ, camDistance, frameMs);
+    // The cities know what was planted round them; the scatter knows how to draw
+    // a tree. This is the one wire between them.
+    this.vegetation.setPlanting(this.cities.lastPlanting);
 
     // Near plane tightens as the camera descends, which is what keeps depth
     // precision usable across a range from 1.4 km to 7,600 km.
