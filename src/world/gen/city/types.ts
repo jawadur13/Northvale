@@ -12,6 +12,7 @@
 import type { BuildingSpec } from './buildings';
 import type { Fortification } from './walls';
 import type { FieldSystem } from '../rural/fields';
+import type { PlantingSite } from '../rural/planting';
 import type { Harbour } from './harbour';
 import type { Poly } from './geometry2d';
 
@@ -143,6 +144,15 @@ export interface CityPlan {
   fieldGround: FlatGeometry | null;
   /** Farmstead buildings, baked. */
   fieldBuildings: BlockGeometry | null;
+  /**
+   * Trees somebody planted: hedgerow standards, windbreaks, orchard rows.
+   *
+   * Handed to the vegetation scatter as extra sites rather than drawn here, so
+   * they get the same prototypes, the same two detail tiers and the same tinting
+   * as everything that grew on its own. Null until first asked for, because it
+   * needs the blocks *and* the fields and most plans are never looked at closely.
+   */
+  planting: PlantingSite[] | null;
   /** The works, baked once. Camera-independent, like everything else here. */
   works: BlockGeometry | null;
   /**

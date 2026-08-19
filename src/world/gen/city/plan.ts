@@ -289,6 +289,7 @@ export function buildCityPlan(input: PlanInput): CityPlan {
     fields: buildFields(f.x, f.z, radius, ctx, seed),
     fieldGround: null,
     fieldBuildings: null,
+    planting: null,
     works: null,
     ground: null,
     stats: { blocks: blocks.length, streetKm, parcels: 0 },
