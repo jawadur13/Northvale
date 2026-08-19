@@ -88,6 +88,9 @@ const PLAN_SHOTS: Shot[] = [
   // shots can say whether a wood has structure or is a mat.
   { name: 'p11-forest', setup: 'window.__nv.jumpToBiome("BorealForest", 1.6)', settle: 4200 },
   { name: 'p12-forest-edge', setup: 'window.__nv.jumpToBiome("TemperateForest", 7)', settle: 4200 },
+  // Workings, which is the only part of a mine or a quarry anyone can see from
+  // the air: the spoil, the benches, the pond.
+  { name: 'p13-quarry', setup: 'window.__nv.jumpToKind("quarry", 2.2)', settle: 4200 },
   // A bridge that was actually put on its river. Eight of the hundred and ten
   // cross a channel too small to be drawn and get no deck, and picking the first
   // bridge in the list is as likely to find one of those as not.

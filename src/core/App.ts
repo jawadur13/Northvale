@@ -337,6 +337,46 @@ export class App {
         return true;
       },
       /**
+       * A landmark of one kind, standing on open land rather than on a cliff.
+       *
+       * Picking the first of a kind found one quarry perched over deep water with
+       * half the view below sea level, and the next on a 2,400 m cliff where the
+       * terrain mesh has vertices two hundred metres apart and nothing the size of
+       * a quarry can sit on it convincingly. Scoring for dry, *gentle* ground costs
+       * a few dozen samples and makes a landmark view mean something.
+       */
+      jumpToKind: (kind: string, distance = 3) => {
+        let best: Feature | null = null;
+        let bestScore = -1;
+        for (const f of payload.features) {
+          if (f.kind !== kind) continue;
+          let score = 0;
+          for (let dz = -2; dz <= 2; dz++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              if (view.resources.heightAt(f.x + dx * 1.2, f.z + dz * 1.2) > 0.02) score++;
+            }
+          }
+          const d = 0.4;
+          const gx = view.resources.heightAt(f.x + d, f.z) - view.resources.heightAt(f.x - d, f.z);
+          const gz = view.resources.heightAt(f.x, f.z + d) - view.resources.heightAt(f.x, f.z - d);
+          score -= Math.hypot(gx, gz) * 40;
+          // And prefer somewhere people live. Scoring for flat dry ground alone
+          // found a quarry on an ice sheet, which proves the geometry and shows
+          // nothing else.
+          score -= Math.max(0, (f.elevation ?? 0) - 900) * 0.004;
+          if (score > bestScore) {
+            bestScore = score;
+            best = f;
+          }
+        }
+        if (!best) return false;
+        this.selected = best;
+        this.labels?.setSelected(best);
+        this.info?.show(best);
+        director.jumpTo({ x: best.x, z: best.z, distance, polar: 0.68 });
+        return true;
+      },
+      /**
        * The largest continuous stretch of one biome, for looking at vegetation.
        *
        * Sampled on a coarse lattice and scored by how much of the neighbourhood
