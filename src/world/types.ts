@@ -146,6 +146,22 @@ export interface Feature {
   links?: number[];
   /** Tags for filtering and flavour: 'coastal', 'fortified', 'ancient'... */
   tags?: string[];
+  /**
+   * Bearings, in radians, of the roads that arrive at this settlement.
+   *
+   * The city planner turns each of these into a radial street, which is what
+   * makes the highway network run *through* a town rather than stopping at a ring
+   * of buildings on its edge.
+   */
+  approaches?: Float32Array;
+  /**
+   * Clear span in km, for a bridge.
+   *
+   * Set from the river's discharge where the road crosses it. The renderer needs
+   * it to lay a deck that actually reaches both banks, and it is not recoverable
+   * from anything else the feature carries.
+   */
+  spanKm?: number;
 }
 
 export interface RegionInfo {
