@@ -16,9 +16,12 @@
 import * as THREE from 'three';
 import {
   DEFAULT_EXAGGERATION,
+  HALF_KM,
+  MACRO,
   QUALITY_PRESETS,
   type QualityName,
   tierForDistance,
+  WORLD_KM,
   ZoomTier,
 } from '../core/config';
 import { clamp } from '../util/math';
@@ -195,6 +198,14 @@ export class WorldView {
     );
     this.scene.add(this.coastline.object);
 
+    // Nearest-cell biome lookup, for the field system: what a hedge is made of and
+    // whether ground is worth ploughing are properties of the country, not the town.
+    const biomeAt = (x: number, z: number): number => {
+      const gx = Math.min(MACRO - 1, Math.max(0, Math.round(((x + HALF_KM) / WORLD_KM) * (MACRO - 1))));
+      const gz = Math.min(MACRO - 1, Math.max(0, Math.round(((z + HALF_KM) / WORLD_KM) * (MACRO - 1))));
+      return payload.biomeIds[gz * MACRO + gx];
+    };
+
     this.vegetation = new Vegetation(
       u,
       payload.biomeIds,
@@ -221,6 +232,7 @@ export class WorldView {
       payload.cultures,
       heightAt,
       slopeAt,
+      biomeAt,
       preset.cityVertexBudget,
     );
     this.scene.add(this.cities.group);

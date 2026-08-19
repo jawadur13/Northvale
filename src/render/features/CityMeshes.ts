@@ -32,6 +32,8 @@ import { clamp } from '../../util/math';
 import { buildCityPlan } from '../../world/gen/city/plan';
 import { buildParcels } from '../../world/gen/city/parcels';
 import { buildBuildings, estimateBlockMass } from '../../world/gen/city/buildings';
+import { cropPoly } from '../../world/gen/rural/fields';
+import { buildWorks } from '../../world/gen/rural/works';
 import {
   emitBlockMass,
   emitBridge,
@@ -39,11 +41,18 @@ import {
   emitBuildingBox,
   emitFortification,
   emitHarbour,
+  emitWorks,
   freezeGeometry,
   newGeomBuilder,
   type HarbourPalette,
 } from '../../world/gen/city/geometry3d';
-import { boundingRadius, insetConvex, vertexCount, type Poly } from '../../world/gen/city/geometry2d';
+import {
+  boundingRadius,
+  insetConvex,
+  rectanglePolygon,
+  vertexCount,
+  type Poly,
+} from '../../world/gen/city/geometry2d';
 import {
   DISTRICTS,
   type Block,
@@ -346,6 +355,11 @@ function groundPoly(block: Block): Poly | null {
   return insetConvex(block.poly, boundingRadius(block.poly, c[0], c[1]) * shrink);
 }
 
+/** Unpacks a packed RGB colour to 0..1 components. */
+function unpackColor(rgb: number): [number, number, number] {
+  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255];
+}
+
 /** Unpacks a packed RGB district colour and dims it. */
 function scaled(color: number, v: number): [number, number, number] {
   return [(((color >> 16) & 255) / 255) * v, (((color >> 8) & 255) / 255) * v, ((color & 255) / 255) * v];
@@ -509,11 +523,15 @@ export class CityMeshes {
   private plans = new Map<number, CityPlan>();
   private bridges: Feature[];
   private bridgeGeom = new Map<number, BlockGeometry>();
+  /** Mines, quarries and mills — landmarks that disturbed the ground they sit on. */
+  private industry: Feature[];
+  private industryGeom = new Map<number, BlockGeometry>();
   private settlements: Feature[];
   private regions: RegionInfo[];
   private cultures: CultureInfo[];
   private heightAt: (x: number, z: number) => number;
   private slopeAt: (x: number, z: number) => number;
+  private biomeAt: (x: number, z: number) => number;
 
   private enabled = true;
   private lastKey = '';
@@ -537,6 +555,7 @@ export class CityMeshes {
     cultures: CultureInfo[],
     heightAt: (x: number, z: number) => number,
     slopeAt: (x: number, z: number) => number,
+    biomeAt: (x: number, z: number) => number,
     vertexBudget = 1_500_000,
   ) {
     this.settlements = features.filter(
@@ -552,10 +571,19 @@ export class CityMeshes {
     this.bridges = features.filter(
       (f) => f.kind === 'bridge' && f.approaches !== undefined && f.approaches.length > 0,
     );
+    this.industry = features.filter(
+      (f) =>
+        f.kind === 'mine' ||
+        f.kind === 'quarry' ||
+        f.kind === 'watermill' ||
+        f.kind === 'sawmill' ||
+        f.kind === 'windmill',
+    );
     this.regions = regions;
     this.cultures = cultures;
     this.heightAt = heightAt;
     this.slopeAt = slopeAt;
+    this.biomeAt = biomeAt;
     this.vertexBudget = vertexBudget;
 
     const shared = uniforms as unknown as Record<string, THREE.IUniform>;
@@ -632,6 +660,7 @@ export class CityMeshes {
       culture,
       heightAt: this.heightAt,
       slopeAt: this.slopeAt,
+      biomeAt: this.biomeAt,
     });
     this.plans.set(f.id, plan);
     return plan;
@@ -668,6 +697,57 @@ export class CityMeshes {
     }
     block.flat.plots = freezeFlat(b);
     return block.flat.plots;
+  }
+
+  /**
+   * The field belt, baked once.
+   *
+   * Two polygons a parcel: the whole thing in the boundary colour, then the crop
+   * laid inside it. A hedged field is therefore a polygon and an inset polygon
+   * rather than a polygon and a ribbon, which is both cheaper and more honest —
+   * what the boundary actually is, from the air, is the margin of the field.
+   */
+  private flatFields(plan: CityPlan): FlatGeometry {
+    if (plan.fieldGround) return plan.fieldGround;
+    const b = newFlat();
+    for (const parcel of plan.fields.parcels) {
+      addFlatPoly(b, parcel.poly, ...scaled(parcel.boundary, 0.86), 0);
+      const crop = cropPoly(parcel);
+      if (crop) addFlatPoly(b, crop, ...scaled(parcel.crop, 0.92), 1);
+    }
+    plan.fieldGround = freezeFlat(b);
+    return plan.fieldGround;
+  }
+
+  /** Farmstead buildings, baked once. */
+  private fieldBuildings(plan: CityPlan, culture: number): BlockGeometry {
+    if (plan.fieldBuildings) return plan.fieldBuildings;
+    const info = this.cultures[culture] ?? this.cultures[0];
+    const wall = unpackColor(info ? info.wallColor : 0x9a958c);
+    const roof = unpackColor(info ? info.roofColor : 0x6e5a44);
+    const b = newGeomBuilder();
+    for (const farm of plan.fields.farms) {
+      // House and barn set at right angles about a yard, which is what a
+      // farmstead is: the yard is the room, the buildings are its walls.
+      const house = rectanglePolygon(
+        farm.x + Math.cos(farm.angle) * farm.houseW * 0.9,
+        farm.z + Math.sin(farm.angle) * farm.houseW * 0.9,
+        farm.houseW * 0.5,
+        farm.houseD * 0.5,
+        farm.angle,
+      );
+      const barn = rectanglePolygon(
+        farm.x - Math.sin(farm.angle) * farm.barnW * 0.7,
+        farm.z + Math.cos(farm.angle) * farm.barnW * 0.7,
+        farm.barnW * 0.5,
+        farm.barnD * 0.5,
+        farm.angle + Math.PI * 0.5,
+      );
+      emitBlockMass(b, house, farm.houseH, wall, roof);
+      emitBlockMass(b, barn, farm.barnH, wall, roof);
+    }
+    plan.fieldBuildings = freezeGeometry(b);
+    return plan.fieldBuildings;
   }
 
   /** Streets, ditch and quay apron for one city, baked once. */
@@ -753,6 +833,18 @@ export class CityMeshes {
     );
     const frozen = freezeGeometry(b);
     this.bridgeGeom.set(f.id, frozen);
+    return frozen;
+  }
+
+  /** One landmark's workings, baked once. */
+  private industryGeometry(f: Feature): BlockGeometry {
+    const cached = this.industryGeom.get(f.id);
+    if (cached) return cached;
+    const b = newGeomBuilder();
+    const works = buildWorks(f.kind, f.x, f.z, f.importance ?? 0.4, this.slopeAt(f.x, f.z), f.id);
+    if (works) emitWorks(b, works);
+    const frozen = freezeGeometry(b);
+    this.industryGeom.set(f.id, frozen);
     return frozen;
   }
 
@@ -921,6 +1013,14 @@ export class CityMeshes {
       if (g.pos.length) works.push(g);
     }
 
+    // Mines, quarries and mills, on the same footing: they belong to the country
+    // rather than to any town, and they disturbed the ground they stand on.
+    for (const f of this.industry) {
+      if (Math.hypot(f.x - focusX, f.z - focusZ) > r2) continue;
+      const g = this.industryGeometry(f);
+      if (g.pos.length) works.push(g);
+    }
+
     const candidates: Candidate[] = [];
 
     for (const f of features) {
@@ -946,6 +1046,15 @@ export class CityMeshes {
       // all. A walled city seen from ten kilometres should read as walled — that
       // is the entire reason for building the wall as geometry.
       const cityD = Math.hypot(plan.cx - focusX, plan.cz - focusZ);
+
+      // The field belt reaches further out than the town does, so it is drawn on
+      // its own reach rather than the town's.
+      if (cityD < r3 + plan.radiusKm * 3) {
+        addFlat(this.flatFields(plan));
+        const farms = this.fieldBuildings(plan, culture);
+        if (farms.pos.length) works.push(farms);
+      }
+
       if (cityD < r2 + plan.radiusKm) {
         const g = this.worksGeometry(plan, culture);
         if (g.pos.length) works.push(g);
@@ -1104,5 +1213,6 @@ export class CityMeshes {
     this.group.remove(this.buildingMesh, this.worksMesh, this.flatMesh);
     this.plans.clear();
     this.bridgeGeom.clear();
+    this.industryGeom.clear();
   }
 }
