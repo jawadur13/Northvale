@@ -400,14 +400,11 @@ stream however many pixels it happens to occupy.
 Roads are coloured and dashed by class, following the cartographic convention that
 an unmetalled way is dashed.
 
-### Vegetation and built form
+### Built form
 
-Vegetation is a **scale-adaptive scatter**: instance spacing is derived each frame
-from the camera distance so the instance count stays inside a fixed budget wherever
-the camera is. Placement is a hash of the grid cell, so rebuilding after the camera
-moves produces the same trees in the same places rather than a new forest. Above the
-local tier it switches off entirely and the terrain shader's vegetation term carries
-the forests, which is why zooming out never costs frame rate.
+Vegetation has its own section below; placement there, as here, is a hash of the grid
+cell, so rebuilding after the camera moves produces the same trees in the same places
+rather than a new forest.
 
 Settlements are **planned, then built**, from their own deterministic seed. The plan
 comes first: a street network — radial with a market square and ring streets, or a
@@ -463,6 +460,38 @@ is exaggerated. That is deliberate. A ten-metre house multiplied by the relief f
 would be a forty-metre house and every town would read as a city of towers; relief
 exaggeration is a cartographic device for landforms and has no business being applied
 to things whose real size the viewer knows.
+
+### Vegetation
+
+Plants are scattered as a **ring of real planting** around the camera: inside it they
+stand at true height and at the density the biome actually supports, and outside it
+the terrain shader's own vegetation term carries the forests at no per-instance cost.
+The ring is as large as the instance budget allows and dissolves into the terrain
+colour over most of its width, so the handover is not an edge.
+
+That is a correction, not a design. It first held the ring at the camera's full view
+radius and scaled each instance up to compensate — a tree spaced 150 m from its
+neighbours drawn 150 m tall so the canopy would meet. It kept the budget and read as
+cover right up until buildings arrived at true scale, at which point the trees were
+revealed as monuments. **Cover is a matter of how many, not how large**, and the rest
+follows: spacing is nine metres, which is where a conifer canopy closes; a
+240,000-instance budget therefore reaches about two and a half kilometres; and past
+the height where a crown is a pixel wide the spacing loosens, because thinning a
+stand nobody can resolve is free and stopping short of the view is not.
+
+Every biome carries a **species mix** rather than one prototype — a boreal forest is
+spruce *and* birch *and* the standing dead timber neither of them cleared — and each
+species carries its own height range in metres. Two levels of detail: full geometry
+near, canopy alone beyond, cut to the same outline so nothing changes shape as it
+crosses the boundary. The far tier is a canopy, not the usual crossed billboards,
+because two crossed cards read as a literal X from overhead and overhead is the only
+angle this map is ever seen from.
+
+Forests have **structure**. Low-frequency noise opens clearings; a biome edge is
+denser than its interior, because light reaches the side of it; and woodland follows
+water, hardest where there is least of it — the line of green along a watercourse
+through dry country is one of the most recognisable things in any aerial view of
+anywhere.
 
 ### Camera
 
@@ -558,15 +587,17 @@ The world is enormous; the frame budget is not. What keeps it interactive:
 - **Frustum culling on real vertical bounds**, sampled lazily per node.
 - **Sub-texel relief is procedural**, so close-range detail costs instructions rather
   than memory.
-- **Everything batched.** Vegetation is one draw call per plant type; every city in
-  view is three, however many buildings they hold.
+- **Everything batched.** Vegetation is one draw call per species and detail tier —
+  and only for the tiers actually growing in view, since each is allocated on demand.
+  Every city in view is three, however many buildings they hold.
 - **Built geometry is cached per block per tier** and merged by `memcpy`, so a camera
   move is typed-array copies rather than a regeneration.
-- **Generation is budgeted by wall clock**, not by count: a rebuild spends at most
-  16 ms raising new buildings and draws the rest a tier coarser until a later frame
-  affords them. A slow machine fills a city over more frames, not in one long freeze.
-- **Scale-adaptive budgets.** Vegetation spacing and settlement counts are derived
-  from camera distance to hold a fixed instance ceiling at any zoom.
+- **Generation is budgeted by wall clock**, not by count: a rebuild spends a fraction
+  of the previous frame raising new buildings and draws the rest a tier coarser until
+  a later frame affords them. A slow machine fills a city over more frames, not in one
+  long freeze.
+- **Scale-adaptive budgets.** The vegetation ring is sized from the instance budget,
+  and its spacing loosens only where a crown is smaller than a pixel.
 - **Tier gating.** Vegetation stops above ~95 km, built form above ~150 km, surface
   detail noise above ~1,400 km, water chop with distance. Zooming out gets *cheaper*.
 - **Analytic sky.** The water reflection needs no render target.
@@ -635,7 +666,7 @@ src/
 │   ├── Atmosphere.ts          Sky dome and the time-of-day light model
 │   ├── terrain/               Quadtree and terrain shaders
 │   ├── water/                 Ocean, lakes, wave model
-│   └── features/              Ribbons, vegetation, built form
+│   └── features/              Ribbons, plants, built form
 ├── camera/
 │   ├── MapControls.ts         Damped orbit-pan-zoom, touch and keyboard
 │   └── CameraDirector.ts      Arced flights
@@ -666,6 +697,9 @@ scripts/
 | How a district builds | `gen/city/types.ts` → `DISTRICTS`, `gen/city/buildings.ts` → `DISTRICT_FORM` |
 | How a culture builds | `gen/city/buildings.ts` → `STYLES` |
 | City detail radii and budgets | `render/features/CityMeshes.ts` |
+| What grows in a biome, and how tall | `gen/biomes.ts` — the `mix` on each entry |
+| Plant silhouettes | `render/features/PlantLibrary.ts` |
+| Canopy spacing, clearings, forest edges | `render/features/Vegetation.ts` |
 | Wall and tower proportions | `gen/city/walls.ts` |
 | Harbour layout | `gen/city/harbour.ts` |
 

@@ -3,9 +3,10 @@
 **Goal:** far more detail — cities with real street plans and buildings, villages
 with houses and farmyards, working rural infrastructure.
 
-**Status:** **Phase A complete and verified** — A1 street plans, A2 buildings, A3
-works. Phase B (vegetation) next. See §11 for the progress log, and
-**[RESUME.md](RESUME.md) to pick the work back up.**
+**Status:** **Phases A and B complete** — street plans, buildings, works, and
+vegetation at real density and real scale. Phase C (rural landscape) next. See §11
+and §12 for the progress logs, and **[RESUME.md](RESUME.md) to pick the work back
+up.**
 **Written against:** the current build — 18,500 lines, 54 TS modules, ~11 s
 generation, 5,500 named features.
 
@@ -143,9 +144,9 @@ layouts today.
 
 ---
 
-## 4. Phase B — Vegetation at real density
+## 4. Phase B — Vegetation at real density ✅
 
-**1 session.** Independent. Large gain for modest work.
+**Shipped.** See §12 for what was built and what was not.
 
 - **Impostor LOD chain**: mesh → cross-billboard → terrain shader term. Only the
   nearest few thousand trees are real geometry.
@@ -609,3 +610,82 @@ times faster.
   cells and cannot see a strait narrower than that. Not new, and visible now only
   because there is finally something else on the coast to compare it against.
 - `ArchStyle.courtyard` is still declared and unused. No dormers or chimneys.
+
+---
+
+## 12. Phase B — vegetation ✅
+
+**Shipped.** Two new modules and a rewritten scatter.
+
+| File | What it does |
+| --- | --- |
+| `render/features/PlantLibrary.ts` | Eleven prototypes at unit height, each at two detail tiers |
+| `render/features/Vegetation.ts` | Rewritten: species mixes, real heights, forest structure, two-tier LOD |
+| `world/gen/biomes.ts` | Every biome gained a `mix` of species with real height ranges |
+| `core/config.ts` | Instance budgets raised from 9k–110k to 25k–400k |
+| `core/App.ts` | `__nv.jumpToBiome`, which finds the *middle* of a biome rather than its edge |
+
+### The one decision everything follows from
+
+**Cover is a matter of how many, not how large.**
+
+The old scatter held its ring at the camera's full view radius and scaled each
+instance up to compensate — a tree spaced 150 m from its neighbours drawn 150 m
+tall so the canopy would meet. It kept the instance budget and it read as cover,
+right up until Phase A put buildings on the ground at true scale and the trees were
+revealed as monuments: a 130 m oak beside a 9 m house.
+
+Once instances are at true height, everything else is forced:
+
+- **Spacing is nine metres**, which is where a conifer canopy closes. Not the
+  twenty-two the first attempt used, at which the arithmetic works and the forest
+  comes out as a field of dots on lit ground. What makes forest read as forest from
+  the air is that it shadows itself.
+- **The ring is therefore small** — about 2.5 km at the 240,000-instance high
+  preset — and the terrain shader's own vegetation term carries everything beyond
+  it, dissolved into over most of the ring's width so the handover is not an edge.
+- **Spacing loosens above the height where a crown is a pixel wide.** Thinning a
+  stand nobody can resolve is free; stopping short of the view is not.
+
+### Structure
+
+Three terms, all multipliers on the cover the classifier already decided:
+
+- **Clearings** from low-frequency value noise. Real forest is stands with gaps
+  between them; without this a biome boundary is the only edge anything has.
+- **Edges** thicken. A forest edge is denser than its interior because light
+  reaches the side of it — four taps at one macro cell out find one.
+- **Gallery woodland** follows the water table, hardest where there is least of it.
+  The line of green along a watercourse through dry country is one of the most
+  recognisable things in any aerial view of anywhere.
+
+### Bugs found
+
+1. **Cover was taken from the climate model alone**, which put a boreal forest on
+   the ground at a third of the density the biome classifier had just assigned it.
+   The biome is the authority on what a place supports; the climate value modulates
+   within it.
+2. **The scatter vanished the moment the camera climbed.** The ring is a *ground*
+   distance from the focus and the fade is a *view* distance from the eye, and the
+   two differ by the whole height of the camera. Fading at the ring radius alone
+   discarded every instance as soon as the camera was higher than the ring was
+   wide — a forest that disappears when you pull back.
+3. **A visible disc of trees** lying on the landscape, where the ring ended and the
+   terrain term took over. Fixed by dissolving over 80% of the ring rather than
+   38%, and by letting spacing loosen with altitude so the ring reaches the view.
+
+### Not built, and why
+
+- **Ground cover** — grass tufts, scrub, snow drifts. At the locked zoom floor of
+  1.4 km a grass tuft is a hundredth of a pixel. Boulders are in the arid and
+  alpine mixes instead, which is the part of that item that can actually be seen.
+- **Hedgerows, orchard rows, windbreaks.** All three are boundaries of field
+  systems, and field systems are Phase C. Building them now would mean inventing
+  the field boundaries twice.
+
+### Carried into Phase C
+
+- Orchard districts inside towns are coloured ground with nothing growing on them,
+  because the scatter suppresses planting on developed ground and knows nothing
+  about city blocks. Worth wiring up when Phase C gives the two a shared notion of
+  cultivated land.
