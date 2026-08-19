@@ -88,6 +88,13 @@ export interface QualitySettings {
   terrainSegments: number;
   maxQuadtreeDepth: number;
   shadowSteps: number;
+  /**
+   * Plant instances the scatter may place at once.
+   *
+   * This is what decides how far the ring of real planting reaches, because the
+   * plants themselves are drawn at true size and true spacing: a bigger budget
+   * buys more ground, never bigger trees.
+   */
   vegetationBudget: number;
   /**
    * Vertices of built geometry the city layer may hold at once.
@@ -106,7 +113,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     terrainSegments: 32,
     maxQuadtreeDepth: 5,
     shadowSteps: 0,
-    vegetationBudget: 9000,
+    vegetationBudget: 25_000,
     cityVertexBudget: 260_000,
     pixelRatioCap: 1,
     waterDetail: 0,
@@ -115,7 +122,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     terrainSegments: 48,
     maxQuadtreeDepth: 6,
     shadowSteps: 12,
-    vegetationBudget: 28000,
+    vegetationBudget: 90_000,
     cityVertexBudget: 650_000,
     pixelRatioCap: 1.35,
     waterDetail: 1,
@@ -124,7 +131,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     terrainSegments: 64,
     maxQuadtreeDepth: 7,
     shadowSteps: 20,
-    vegetationBudget: 60000,
+    vegetationBudget: 240_000,
     cityVertexBudget: 1_500_000,
     pixelRatioCap: 1.75,
     waterDetail: 2,
@@ -133,7 +140,7 @@ export const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', Qualit
     terrainSegments: 80,
     maxQuadtreeDepth: 8,
     shadowSteps: 28,
-    vegetationBudget: 110000,
+    vegetationBudget: 400_000,
     cityVertexBudget: 2_600_000,
     pixelRatioCap: 2,
     waterDetail: 2,
