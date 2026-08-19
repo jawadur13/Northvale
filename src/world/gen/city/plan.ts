@@ -20,6 +20,7 @@ import { polyArea, polyCentroid, regularPolygon, type Poly } from './geometry2d'
 import { buildStreetLayout } from './streets';
 import { buildFortification } from './walls';
 import { buildHarbour } from './harbour';
+import { buildFields } from '../rural/fields';
 import {
   cityRadius,
   STREET_WIDTH,
@@ -84,10 +85,11 @@ export interface PlanInput {
   culture: number;
   heightAt: (x: number, z: number) => number;
   slopeAt: (x: number, z: number) => number;
+  biomeAt: (x: number, z: number) => number;
 }
 
 export function buildCityPlan(input: PlanInput): CityPlan {
-  const { feature: f, culture, heightAt, slopeAt } = input;
+  const { feature: f, culture, heightAt, slopeAt, biomeAt } = input;
   const seed = (f.id * 2654435761) ^ 0x5bf03635;
   const rng = new Rng(seed);
 
@@ -111,6 +113,7 @@ export function buildCityPlan(input: PlanInput): CityPlan {
   const ctx: CityContext = {
     heightAt,
     slopeAt,
+    biomeAt,
     approaches,
     culture,
     walled,
@@ -280,6 +283,12 @@ export function buildCityPlan(input: PlanInput): CityPlan {
     // whatever happens to be drawing it.
     fort: wall ? buildFortification(wall, layout.gates, ctx, seed) : null,
     harbour: buildHarbour(f.x, f.z, radius, ctx, seed),
+    // The worked land. A town of any size eats several times its own area, and
+    // the ring of fields is the most legible sign from the air that anyone is
+    // here at all.
+    fields: buildFields(f.x, f.z, radius, ctx, seed),
+    fieldGround: null,
+    fieldBuildings: null,
     works: null,
     ground: null,
     stats: { blocks: blocks.length, streetKm, parcels: 0 },

@@ -11,6 +11,7 @@
 
 import type { BuildingSpec } from './buildings';
 import type { Fortification } from './walls';
+import type { FieldSystem } from '../rural/fields';
 import type { Harbour } from './harbour';
 import type { Poly } from './geometry2d';
 
@@ -136,6 +137,12 @@ export interface CityPlan {
   fort: Fortification | null;
   /** Quays, jetties, breakwater and moored hulls, or null inland. */
   harbour: Harbour | null;
+  /** The worked land around the town: parcels, boundaries and farmsteads. */
+  fields: FieldSystem;
+  /** The fields, baked flat. Camera-independent, like the streets. */
+  fieldGround: FlatGeometry | null;
+  /** Farmstead buildings, baked. */
+  fieldBuildings: BlockGeometry | null;
   /** The works, baked once. Camera-independent, like everything else here. */
   works: BlockGeometry | null;
   /**
@@ -157,6 +164,14 @@ export interface CityContext {
   heightAt: (x: number, z: number) => number;
   /** Approximate gradient magnitude, 0..1, at a world position. */
   slopeAt: (x: number, z: number) => number;
+  /**
+   * Biome id at a world position.
+   *
+   * The field system needs it: what a boundary is made of, and whether the ground
+   * is worth ploughing at all, are both properties of the country rather than of
+   * the town.
+   */
+  biomeAt: (x: number, z: number) => number;
   /** Bearings of roads arriving at this settlement, radians. */
   approaches: number[];
   /** Culture id, which selects the plan form and street proportions. */
