@@ -84,6 +84,10 @@ const PLAN_SHOTS: Shot[] = [
   // moored hull is eight; at the height the port shot is taken from they are a
   // fraction of a pixel, so nothing above this can say whether they are right.
   { name: 'p9-harbour', setup: 'window.__nv.jumpToPort(1.6)', settle: 4200 },
+  // Forest, at the height forest is meant to be read from. Nothing in the city
+  // shots can say whether a wood has structure or is a mat.
+  { name: 'p11-forest', setup: 'window.__nv.jumpToBiome("BorealForest", 1.6)', settle: 4200 },
+  { name: 'p12-forest-edge', setup: 'window.__nv.jumpToBiome("TemperateForest", 7)', settle: 4200 },
   // A bridge that was actually put on its river. Eight of the hundred and ten
   // cross a channel too small to be drawn and get no deck, and picking the first
   // bridge in the list is as likely to find one of those as not.
@@ -187,6 +191,13 @@ async function main(): Promise<void> {
     else if (t === 'warn' || t === 'verbose') warnings.push(text);
   });
   page.on('pageerror', (e) => errors.push(`pageerror: ${(e as Error).message}`));
+  // A renderer crash arrives here, not on the console, and it kills the run
+  // before the summary at the end can print — so say it immediately.
+  page.on('error', (e) => {
+    const msg = `PAGE CRASHED: ${(e as Error).message}`;
+    errors.push(msg);
+    console.log(`  !! ${msg}`);
+  });
   page.on('requestfailed', (r) => {
     errors.push(`requestfailed: ${r.url()} ${r.failure()?.errorText ?? ''}`);
   });
@@ -227,6 +238,7 @@ async function main(): Promise<void> {
   }
 
   for (const shot of shots) {
+    process.stdout.write(`  ${shot.name} ...`);
     await page.evaluate(shot.setup);
     await sleep(shot.settle);
     // Cities fill in progressively over several frames. Photographing one before
@@ -246,7 +258,12 @@ async function main(): Promise<void> {
     const path = `out/shots/${shot.name}.png` as const;
     await page.screenshot({ path });
     const stats = (await page.evaluate('window.__nv.stats()')) as Record<string, unknown>;
-    console.log(`  ${shot.name}  ${JSON.stringify(stats)}`);
+    // Evaluated in the page, so this is plain JavaScript — no type assertions.
+    const heap = (await page.evaluate(
+      'performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1',
+    )) as number;
+    console.log(`
+  ${shot.name}  ${JSON.stringify(stats)}  heap ${heap} MB`);
   }
 
   if (process.argv.includes('--plans')) {

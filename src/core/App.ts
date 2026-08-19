@@ -31,6 +31,7 @@ import { MapControls } from '../camera/MapControls';
 import { Picker } from '../interaction/Picker';
 import { DEFAULT_LAYERS, WorldView, type LayerState } from '../render/WorldView';
 import { MACRO } from './config';
+import { Biome, BIOMES } from '../world/gen/biomes';
 import type { Feature, GenMessage, WorldPayload } from '../world/types';
 import { Bookmarks, Compass, Minimap, Readout, ScaleBar, ZoomControls } from '../ui/Chrome';
 import { HoverTip, InfoPanel } from '../ui/InfoPanel';
@@ -333,6 +334,39 @@ export class App {
         this.labels?.setSelected(f);
         this.info?.show(f);
         director.jumpTo({ x: f.x, z: f.z, distance, polar: 0.7 });
+        return true;
+      },
+      /**
+       * The largest continuous stretch of one biome, for looking at vegetation.
+       *
+       * Sampled on a coarse lattice and scored by how much of the neighbourhood
+       * agrees, so this finds the *middle* of a forest rather than the first
+       * cell of one, which is usually a ragged edge two hundred metres wide.
+       */
+      jumpToBiome: (name: string, distance = 4) => {
+        const target = BIOMES.find((b) => Biome[b.id] === name);
+        if (!target) return false;
+        let bestScore = -1;
+        let bx = 0;
+        let bz = 0;
+        for (let gz = 4; gz < MACRO - 4; gz += 3) {
+          for (let gx = 4; gx < MACRO - 4; gx += 3) {
+            if (payload.biomeIds[gz * MACRO + gx] !== target.id) continue;
+            let score = 0;
+            for (let oz = -3; oz <= 3; oz++) {
+              for (let ox = -3; ox <= 3; ox++) {
+                if (payload.biomeIds[(gz + oz) * MACRO + gx + ox] === target.id) score++;
+              }
+            }
+            if (score > bestScore) {
+              bestScore = score;
+              bx = (gx / (MACRO - 1)) * 4096 - 2048;
+              bz = (gz / (MACRO - 1)) * 4096 - 2048;
+            }
+          }
+        }
+        if (bestScore < 0) return false;
+        director.jumpTo({ x: bx, z: bz, distance, polar: 0.72 });
         return true;
       },
       jumpToBiggestCity: (distance = 9) => {
