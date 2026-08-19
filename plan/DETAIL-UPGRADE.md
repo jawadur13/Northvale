@@ -673,6 +673,20 @@ Three terms, all multipliers on the cover the classifier already decided:
 3. **A visible disc of trees** lying on the landscape, where the ring ended and the
    terrain term took over. Fixed by dissolving over 80% of the ring rather than
    38%, and by letting spacing loosen with altitude so the ring reaches the view.
+4. **Three renderer crashes**, mid-suite, with nothing but a puppeteer stack trace
+   to go on — a crash arrives on `page.on('error')`, not on the console, and kills
+   the run before the summary can print. Instance buffers were being sized to fit
+   demand, so a continuous zoom disposed and rebuilt GPU buffers every frame for as
+   long as the wheel turned. They now double instead: seven reallocations between
+   four thousand instances and the whole budget, for an entire session. The harness
+   reports crashes the moment they happen and the JS heap after every shot, which
+   is what turned an unexplained death into a number that stopped growing.
+5. **A wide forest view silently lost half its trees.** Buckets are given back after
+   four rebuilds drawing nothing, and `mesh.count` describes the *previous*
+   rebuild — so a bucket created a moment ago by the current one reads as empty and
+   was evicted mid-fill. It only showed after enough camera movement to bring the
+   capacity ceiling into play, which made it look like a load-dependent renderer
+   problem rather than a bug.
 
 ### Not built, and why
 
