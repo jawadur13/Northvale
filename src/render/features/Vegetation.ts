@@ -485,7 +485,7 @@ export class Vegetation {
     for (let i = 0; i < this.siteCount; i++) counts[this.siteBucket[i]]++;
 
     for (let k = 0; k < this.keys.length; k++) {
-      if (counts[k] > 0) this.ensure(this.keys[k], counts[k]);
+      if (counts[k] > 0) this.ensure(this.keys[k], counts[k], counts);
     }
 
     const cursor = new Uint32Array(this.keys.length);
@@ -535,7 +535,7 @@ export class Vegetation {
    * Capacity doubles rather than tracking demand exactly, so crossing a biome
    * boundary costs a handful of reallocations and then nothing.
    */
-  private ensure(key: string, n: number): void {
+  private ensure(key: string, n: number, needed: Uint32Array): void {
     const existing = this.buckets.get(key);
     if (existing && existing.capacity >= n) return;
 
@@ -548,7 +548,7 @@ export class Vegetation {
     let capacity = Math.max(4096, existing ? existing.capacity : 4096);
     while (capacity < n) capacity *= 2;
     capacity = Math.min(capacity, this.budget);
-    if (this.allocated() + capacity > this.budget * CAPACITY_SLACK) this.evictIdle();
+    if (this.allocated() + capacity > this.budget * CAPACITY_SLACK) this.evictIdle(needed);
 
     if (existing) {
       this.group.remove(existing.mesh);
@@ -573,10 +573,18 @@ export class Vegetation {
     return total;
   }
 
-  /** Gives back every bucket that drew nothing last rebuild. */
-  private evictIdle(): void {
+  /**
+   * Gives back every bucket that drew nothing and is not wanted this rebuild.
+   *
+   * The second half of that matters: `mesh.count` describes the *previous*
+   * rebuild, so a bucket created a moment ago by this one still reads as empty.
+   * Evicting on count alone therefore throws away buckets the rebuild is in the
+   * middle of filling, and the instances assigned to them vanish.
+   */
+  private evictIdle(needed: Uint32Array): void {
     for (const [key, bucket] of [...this.buckets]) {
       if (bucket.mesh.count > 0) continue;
+      if (needed[this.keys.indexOf(key)] > 0) continue;
       this.group.remove(bucket.mesh);
       bucket.mesh.dispose();
       this.buckets.delete(key);
