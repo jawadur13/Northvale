@@ -36,6 +36,7 @@ import { RIVER_NAME_AREA } from './hydrology';
 import type { Component, LandformSet } from './landforms';
 import { findCapes, thin } from './landforms';
 import type { LandmarkSite } from './landmarks';
+import type { RoadResult } from './roads';
 import { BELTS, CORES, WATER_BODIES, distToPolyline } from './layout';
 import * as lore from './lore';
 import { NameForge } from './names';
@@ -95,6 +96,7 @@ export interface AssemblyInput {
   cultures: CultureInfo[];
   settlements: Settlement[];
   landmarks: LandmarkSite[];
+  roads: RoadResult;
   riverPolylines: Float32Array[];
   forge: NameForge;
 }
@@ -117,6 +119,7 @@ export function assembleFeatures(input: AssemblyInput): AssemblyOutput {
     cultures,
     settlements,
     landmarks,
+    roads,
     riverPolylines,
     forge,
   } = input;
@@ -933,6 +936,46 @@ export function assembleFeatures(input: AssemblyInput): AssemblyOutput {
     hamlet: 0.14,
   };
 
+  // --- Road approaches ----------------------------------------------------
+  // For each settlement, the bearing every road leaves on. Measured a short way
+  // along the route rather than from the first vertex, because the first segment
+  // is often a stub artefact of snapping the path to the settlement centre.
+  const approachesBySettlement = new Map<number, number[]>();
+  const pushApproach = (idx: number, bearing: number) => {
+    const arr = approachesBySettlement.get(idx);
+    if (arr) arr.push(bearing);
+    else approachesBySettlement.set(idx, [bearing]);
+  };
+  for (const road of roads.roads) {
+    const n = road.pts.length / 2;
+    if (n < 2) continue;
+    // Sample about 400 m along, or a quarter of the route for very short lanes.
+    const step = Math.max(1, Math.min(n - 1, Math.round(n / 4)));
+    pushApproach(
+      road.a,
+      Math.atan2(road.pts[step * 2 + 1] - road.pts[1], road.pts[step * 2] - road.pts[0]),
+    );
+    const e = n - 1;
+    pushApproach(
+      road.b,
+      Math.atan2(
+        road.pts[(e - step) * 2 + 1] - road.pts[e * 2 + 1],
+        road.pts[(e - step) * 2] - road.pts[e * 2],
+      ),
+    );
+  }
+  // Merge bearings that arrive within about eight degrees of each other: two
+  // roads leaving on the same side share one street out of town.
+  const mergeBearings = (list: number[]): Float32Array => {
+    const kept: number[] = [];
+    for (const b of list) {
+      const norm = Math.atan2(Math.sin(b), Math.cos(b));
+      if (kept.some((k) => Math.abs(Math.atan2(Math.sin(k - norm), Math.cos(k - norm))) < 0.14)) continue;
+      kept.push(norm);
+    }
+    return new Float32Array(kept);
+  };
+
   // Names first, so descriptions can reference neighbours by name.
   const settlementNames = settlements.map((s) => forge.settlement(cultureAt(s.x, s.z), s.tier));
   for (let i = 0; i < settlements.length; i++) {
@@ -971,6 +1014,7 @@ export function assembleFeatures(input: AssemblyInput): AssemblyOutput {
         ...(s.walled ? ['fortified'] : []),
         s.reason,
       ],
+      approaches: mergeBearings(approachesBySettlement.get(i) ?? []),
     });
     settlementFeatures.push(f);
     if (region) {
@@ -1018,6 +1062,9 @@ export function assembleFeatures(input: AssemblyInput): AssemblyOutput {
       extent: 4,
       biome: lm.biome,
       tags: [lm.cls, lm.kind],
+      // A bridge's position and bearing are corrected after assembly, once the
+      // river polylines exist — see `snapBridgesToRivers` in `generate.ts`.
+      spanKm: lm.kind === 'bridge' && lm.meta ? lm.meta.spanKm : undefined,
     });
   }
 

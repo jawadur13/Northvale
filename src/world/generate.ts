@@ -18,7 +18,7 @@
  * smoke test drives it directly from Node.
  */
 
-import { DEFAULT_EXAGGERATION, FINE, MACRO } from '../core/config';
+import { DEFAULT_EXAGGERATION, FINE, HALF_KM, MACRO, WORLD_KM } from '../core/config';
 import { Field } from '../util/grid';
 import { NameForge } from './gen/names';
 import { deriveSeed } from '../util/rng';
@@ -47,7 +47,7 @@ import {
   buildRegionTexture,
   buildSurfaceTexture,
 } from './gen/textures';
-import type { WorldPayload, WorldStats } from './types';
+import type { Feature, WorldPayload, WorldStats } from './types';
 
 export type ProgressFn = (stage: string, detail: string, fraction: number) => void;
 
@@ -150,6 +150,7 @@ export function generateWorld(seed: number, onProgress: ProgressFn = () => {}): 
     cultures: regionResult.cultures,
     settlements: settlementResult.settlements,
     landmarks,
+    roads: roadResult,
     riverPolylines: [],
     forge,
   });
@@ -173,6 +174,9 @@ export function generateWorld(seed: number, onProgress: ProgressFn = () => {}): 
     for (let i = 0; i < riverFeatures.length && i < riverGeo.polylines.length; i++) {
       riverFeatures[i].path = riverGeo.polylines[i];
     }
+    // Every channel, not only the named ones: most road crossings are of a river
+    // too small to have a name, and all of them have to end up on the water.
+    snapBridgesToRivers(assembly.features, riverGeo.polylines, riverFeatures, height.data);
   }
 
   onProgress('Drawing the map', 'Climate, political and overview textures', 0.96);
@@ -290,3 +294,91 @@ function applyBorderFalloff(height: Field): void {
 }
 
 void FINE;
+
+/**
+ * Puts every bridge on its river.
+ *
+ * A bridge's position comes from the road search grid, which is 512 cells across
+ * the world — eight kilometres a cell. That is enough to record that a road
+ * crosses a river somewhere around here, which is all it was ever used for, and
+ * useless for building anything: the recorded point can be four kilometres from
+ * the water, on a hillside.
+ *
+ * So each one is moved to the nearest point on an actual river polyline and given
+ * the bearing square across the flow — a bridge is perpendicular to its river by
+ * definition — and its elevation and its "On the Such-and-such" fact are corrected
+ * to match, because a feature whose stated river and actual position disagree is
+ * worse than one that is merely imprecise.
+ *
+ * This has to happen here rather than during assembly: the polylines are built
+ * from the render heightfield, which does not exist until after the gazetteer.
+ */
+function snapBridgesToRivers(
+  features: Feature[],
+  channels: Float32Array[],
+  named: Feature[],
+  height: Float32Array,
+): void {
+  /** Nearest point on a set of polylines, with the direction of flow there. */
+  const nearest = (
+    x: number,
+    z: number,
+    maxKm: number,
+    paths: Float32Array[],
+  ): { x: number; z: number; tx: number; tz: number; which: number } | null => {
+    let bestD = maxKm * maxKm;
+    let out: { x: number; z: number; tx: number; tz: number; which: number } | null = null;
+    for (let p = 0; p < paths.length; p++) {
+      const path = paths[p];
+      const n = path.length / 2;
+      if (n < 2) continue;
+      for (let i = 0; i < n; i++) {
+        const px = path[i * 2];
+        const pz = path[i * 2 + 1];
+        const d = (px - x) * (px - x) + (pz - z) * (pz - z);
+        if (d >= bestD) continue;
+        const a = i === 0 ? 0 : i - 1;
+        const c = i === n - 1 ? n - 1 : i + 1;
+        const ex = path[c * 2] - path[a * 2];
+        const ez = path[c * 2 + 1] - path[a * 2 + 1];
+        if (ex === 0 && ez === 0) continue;
+        bestD = d;
+        out = { x: px, z: pz, tx: ex, tz: ez, which: p };
+      }
+    }
+    return out;
+  };
+
+  const namedPaths = named.map((r) => r.path).filter((p): p is Float32Array => p !== undefined);
+
+  for (const b of features) {
+    if (b.kind !== 'bridge') continue;
+
+    const hit = nearest(b.x, b.z, 14, channels);
+    if (!hit) continue;
+
+    b.x = hit.x;
+    b.z = hit.z;
+    // Square across the flow: a bridge is perpendicular to its river by definition.
+    b.approaches = Float32Array.of(Math.atan2(-hit.tx, hit.tz));
+
+    const gx = Math.round(((b.x + HALF_KM) / WORLD_KM) * (MACRO - 1));
+    const gz = Math.round(((b.z + HALF_KM) / WORLD_KM) * (MACRO - 1));
+    if (gx >= 0 && gz >= 0 && gx < MACRO && gz < MACRO) {
+      b.elevation = height[gz * MACRO + gx] * 1000;
+    }
+
+    // Then correct the river it claims to be on, which was named from the old
+    // point. Only a *named* river can be claimed, and only if it is genuinely the
+    // one being crossed rather than the nearest big one some way off.
+    const onNamed = nearest(b.x, b.z, 1.5, namedPaths);
+    const at = b.facts.findIndex((f: string) => f.startsWith('On '));
+    if (onNamed) {
+      const on = `On ${named[onNamed.which].name}`;
+      if (at >= 0) b.facts[at] = on;
+      else b.facts.push(on);
+    } else if (at >= 0) {
+      b.facts.splice(at, 1);
+    }
+  }
+}
