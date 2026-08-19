@@ -33,6 +33,7 @@ import {
 import type { BuildingSpec } from './buildings';
 import type { Fortification } from './walls';
 import type { Harbour } from './harbour';
+import type { Works } from '../rural/works';
 
 /** Accumulates interleaved geometry for one block. */
 export interface GeomBuilder {
@@ -568,4 +569,32 @@ export function emitBridge(b: GeomBuilder, spec: BridgeSpec, stone: [number, num
     const pier = rectanglePolygon(cx, cz, pierWidth * 0.42, spec.widthKm * 0.62, angle);
     emitWalls(b, pier, y + foot, stone, spec.ax, spec.az, 0.82, -foot);
   }
+}
+
+/**
+ * Emits an industrial works: disturbed ground, then whatever stands on it.
+ *
+ * Every piece anchors at the works' own origin rather than its own centre, so a
+ * quarry's benches step relative to each other rather than each following the
+ * hillside independently — which is the difference between a staircase cut into a
+ * slope and a set of discs draped over one.
+ */
+export function emitWorks(b: GeomBuilder, works: Works): void {
+  const sink = -works.sinkKm;
+  for (const p of works.patches) {
+    const poly = regularPolygon(p.x, p.z, p.radiusKm, p.sides, undefined, p.angle);
+    const col = unpack(p.color);
+    emitWalls(b, poly, Math.abs(p.riseKm) + works.sinkKm, col, works.ax, works.az, 0.86, sink);
+    capPoly(b, poly, sink + Math.abs(p.riseKm) + works.sinkKm, works.ax, works.az, col, 1.05);
+  }
+  for (const s of works.buildings) {
+    const poly = rectanglePolygon(s.x, s.z, s.widthKm * 0.5, s.depthKm * 0.5, s.angle);
+    emitWalls(b, poly, s.heightKm + works.sinkKm, unpack(s.wall), works.ax, works.az, 0.95, sink);
+    capPoly(b, poly, s.heightKm, works.ax, works.az, unpack(s.roof), 1.04);
+  }
+}
+
+/** Unpacks a packed RGB colour to 0..1 components. */
+function unpack(rgb: number): [number, number, number] {
+  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255];
 }
