@@ -71,6 +71,30 @@ interface Shot {
   settle: number;
 }
 
+const PLAN_SHOTS: Shot[] = [
+  { name: 'p1-city-plan', setup: 'window.__nv.jumpToBiggestCity(4.2)', settle: 4200 },
+  { name: 'p2-city-plan-wide', setup: 'window.__nv.jumpToBiggestCity(11)', settle: 4200 },
+  { name: 'p3-city-plan-close', setup: 'window.__nv.jumpToBiggestCity(1.9)', settle: 4200 },
+  { name: 'p4-grid-city', setup: 'window.__nv.jumpToCultureCity(0, 5)', settle: 4200 },
+  { name: 'p5-desert-city', setup: 'window.__nv.jumpToCultureCity(3, 5)', settle: 4200 },
+  { name: 'p6-town', setup: 'window.__nv.jumpToTier("town", 2.4)', settle: 4200 },
+  { name: 'p7-village', setup: 'window.__nv.jumpToTier("village", 1.1)', settle: 4200 },
+  { name: 'p8-port-plan', setup: 'window.__nv.jumpToPort()', settle: 4200 },
+  // Low enough to judge the harbour works. A quay is four metres wide and a
+  // moored hull is eight; at the height the port shot is taken from they are a
+  // fraction of a pixel, so nothing above this can say whether they are right.
+  { name: 'p9-harbour', setup: 'window.__nv.jumpToPort(1.6)', settle: 4200 },
+  // A bridge that was actually put on its river. Eight of the hundred and ten
+  // cross a channel too small to be drawn and get no deck, and picking the first
+  // bridge in the list is as likely to find one of those as not.
+  {
+    name: 'p10-bridge',
+    setup:
+      '(() => { const f = window.__nv.features().find((x) => x.kind === "bridge" && x.approaches && x.approaches.length); return f ? window.__nv.jumpTo(f.x, f.z, 1.5, 0.6, 0.62) : false; })()',
+    settle: 4200,
+  },
+];
+
 const SHOTS: Shot[] = [
   {
     name: '01-world',
@@ -133,7 +157,9 @@ async function main(): Promise<void> {
   }
   const port = 4288;
   const server = await serve('dist', port);
-  const base = process.argv[2] ?? `http://localhost:${port}/`;
+  // Flags must not be mistaken for the base URL.
+  const urlArg = process.argv.slice(2).find((a) => !a.startsWith('--'));
+  const base = urlArg ?? `http://localhost:${port}/`;
 
   const browser: Browser = await puppeteer.launch({
     executablePath: findBrowser(),
@@ -176,16 +202,60 @@ async function main(): Promise<void> {
   const genInfo = (await page.evaluate('window.__nv.info()')) as Record<string, unknown>;
   console.log('World ready:', JSON.stringify(genInfo));
 
+  // Pin the quality preset. The application drops it when frames run long, which
+  // is right on a real machine and useless here: software WebGL is fifty times
+  // slower than the target, so every shot would be taken at the lowest preset —
+  // four-kilometre terrain vertices, which loses the coastline a port stands on.
+  await page.evaluate('window.__nv.setQuality("high")');
+
   // Let the first frames settle so the terrain quadtree and labels are populated.
   await sleep(4000);
 
-  for (const shot of SHOTS) {
+  // `--only=p10` or `--only=p3,p5,p10` runs a subset. A full pass is ten shots of a
+  // large city under software WebGL, which is ten minutes; checking one change
+  // should not cost that.
+  const onlyArg = process.argv.find((a) => a.startsWith('--only='));
+  const only = onlyArg ? onlyArg.slice('--only='.length) : null;
+  const all = process.argv.includes('--plans') ? PLAN_SHOTS : SHOTS;
+  const wanted = only ? only.split(',') : null;
+  const shots = wanted ? all.filter((s) => wanted.some((w) => s.name.split('-')[0] === w)) : all;
+  if (!shots.length) {
+    console.log(`No shot matches "${only}". Available: ${all.map((s) => s.name).join(', ')}`);
+    await browser.close();
+    server.close();
+    process.exit(1);
+  }
+
+  for (const shot of shots) {
     await page.evaluate(shot.setup);
     await sleep(shot.settle);
+    // Cities fill in progressively over several frames. Photographing one before
+    // it has caught up says nothing about how the finished thing looks. The
+    // largest cities do not always finish inside this on a software rasteriser,
+    // which is worth saying out loud rather than leaving the reader to wonder why
+    // a capital looks half-built.
+    const settleMs = 300_000;
+    await page
+      .waitForFunction('window.__nv.stats().citiesSettled === true', {
+        timeout: settleMs,
+        polling: 250,
+      })
+      .catch(() =>
+        console.log(`    (${shot.name}: still filling after ${settleMs / 1000} s — shot is partial)`),
+      );
     const path = `out/shots/${shot.name}.png` as const;
     await page.screenshot({ path });
     const stats = (await page.evaluate('window.__nv.stats()')) as Record<string, unknown>;
     console.log(`  ${shot.name}  ${JSON.stringify(stats)}`);
+  }
+
+  if (process.argv.includes('--plans')) {
+    console.log(`
+Console errors: ${errors.length}`);
+    for (const e of [...new Set(errors)].slice(0, 25)) console.log(`  ERROR ${e}`);
+    await browser.close();
+    server.close();
+    process.exit(errors.length ? 1 : 0);
   }
 
   // A brief interaction sanity check: drag, wheel, and a click.
